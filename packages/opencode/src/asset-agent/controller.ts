@@ -42,17 +42,17 @@ export class AssetAgentController {
 
     // Generate summary
     const totalTime = (Date.now() - startTime) / 1000
-    const summary = this.tracker.getSummary()
+    const totalCost = this.calculateTotalCost(results.assets)
 
     // Build result
     const batchResult: BatchAssetResult = {
-      success: summary.completed,
-      failed: summary.failed,
-      totalCost: this.calculateTotalCost(results.assets),
+      success: this.tracker.getSummary().completed,
+      failed: this.tracker.getSummary().failed,
+      totalCost,
       totalTime,
       assets: results.assets,
       failures: results.failures,
-      manifest: this.generateManifest(results.assets, summary.totalCost, totalTime),
+      manifest: this.generateManifest(results.assets, totalCost, totalTime),
     }
 
     return batchResult

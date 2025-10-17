@@ -76,9 +76,9 @@ export class FalAIProvider {
       logs: false,
     })
 
-    // Result contains .geometry_file with the 3D model URL
+    // Result contains the 3D model URL
     return {
-      url: result.data.geometry_file.url,
+      url: (result.data as any).geometry_file?.url || (result.data as any).model_url?.url || "",
     }
   }
 
