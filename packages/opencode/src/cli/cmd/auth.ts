@@ -193,12 +193,12 @@ export const AuthLoginCommand = cmd({
         }
 
         if (provider === "other") {
-          provider = await prompts.text({
+          const providerId = await prompts.text({
             message: "Enter provider id",
             validate: (x) => (x && x.match(/^[0-9a-z-]+$/) ? undefined : "a-z, 0-9 and hyphens only"),
           })
-          if (prompts.isCancel(provider)) throw new UI.CancelledError()
-          provider = provider.replace(/^@ai-sdk\//, "")
+          if (prompts.isCancel(providerId)) throw new UI.CancelledError()
+          provider = (providerId as string).replace(/^@ai-sdk\//, "")
           if (prompts.isCancel(provider)) throw new UI.CancelledError()
           prompts.log.warn(
             `This only stores a credential for ${provider} - you will need configure it in playscape.json, check the docs for examples.`,
