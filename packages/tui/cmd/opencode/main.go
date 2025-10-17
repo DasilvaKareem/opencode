@@ -35,7 +35,10 @@ func main() {
 	var sessionID *string = flag.String("session", "", "session ID")
 	flag.Parse()
 
-	url := os.Getenv("OPENCODE_SERVER")
+	url := os.Getenv("PLAYSCAPE_SERVER")
+	if url == "" {
+		url = os.Getenv("OPENCODE_SERVER")
+	}
 
 	stat, err := os.Stdin.Stat()
 	if err != nil {

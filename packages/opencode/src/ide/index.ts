@@ -43,7 +43,7 @@ export namespace Ide {
   }
 
   export function alreadyInstalled() {
-    return process.env["OPENCODE_CALLER"] === "vscode"
+    return process.env["PLAYSCAPE_CALLER"] === "vscode"
   }
 
   export async function install(ide: (typeof SUPPORTED_IDES)[number]["name"]) {

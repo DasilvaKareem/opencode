@@ -17,11 +17,11 @@ import { $ } from "bun"
 import { bootstrap } from "../bootstrap"
 
 declare global {
-  const OPENCODE_TUI_PATH: string
+  const PLAYSCAPE_TUI_PATH: string
 }
 
-if (typeof OPENCODE_TUI_PATH !== "undefined") {
-  await import(OPENCODE_TUI_PATH as string, {
+if (typeof PLAYSCAPE_TUI_PATH !== "undefined") {
+  await import(PLAYSCAPE_TUI_PATH as string, {
     with: { type: "file" },
   })
 }
@@ -148,7 +148,7 @@ export const TuiCommand = cmd({
           env: {
             ...process.env,
             CGO_ENABLED: "0",
-            OPENCODE_SERVER: server.url.toString(),
+            PLAYSCAPE_SERVER: server.url.toString(),
           },
           onExit: () => {
             server.stop()
@@ -158,7 +158,7 @@ export const TuiCommand = cmd({
         ;(async () => {
           // if (Installation.isLocal()) return
           const config = await Config.global()
-          if (config.autoupdate === false || Flag.OPENCODE_DISABLE_AUTOUPDATE) return
+          if (config.autoupdate === false || Flag.PLAYSCAPE_DISABLE_AUTOUPDATE) return
           const latest = await Installation.latest().catch(() => {})
           if (!latest) return
           if (Installation.VERSION === latest) return
@@ -203,12 +203,12 @@ export const TuiCommand = cmd({
 /**
  * Get the correct command to run Playscape CLI
  * In development: ["bun", "run", "packages/opencode/src/index.ts"]
- * In production: ["/path/to/opencode"]
+ * In production: ["/path/to/playscape"]
  */
 function getOpencodeCommand(): string[] {
-  // Check if OPENCODE_BIN_PATH is set (used by shell wrapper scripts)
-  if (process.env["OPENCODE_BIN_PATH"]) {
-    return [process.env["OPENCODE_BIN_PATH"]]
+  // Check if PLAYSCAPE_BIN_PATH is set (used by shell wrapper scripts)
+  if (process.env["PLAYSCAPE_BIN_PATH"]) {
+    return [process.env["PLAYSCAPE_BIN_PATH"]]
   }
 
   const execPath = process.execPath.toLowerCase()

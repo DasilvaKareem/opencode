@@ -77,9 +77,9 @@ func TestLoadThemesFromDirectories(t *testing.T) {
 	cwd := filepath.Join(tempDir, "cwd")
 
 	// Create theme directories
-	os.MkdirAll(filepath.Join(userConfig, "opencode", "themes"), 0755)
-	os.MkdirAll(filepath.Join(projectRoot, ".opencode", "themes"), 0755)
-	os.MkdirAll(filepath.Join(cwd, ".opencode", "themes"), 0755)
+	os.MkdirAll(filepath.Join(userConfig, "playscape", "themes"), 0755)
+	os.MkdirAll(filepath.Join(projectRoot, ".playscape", "themes"), 0755)
+	os.MkdirAll(filepath.Join(cwd, ".playscape", "themes"), 0755)
 
 	// Create test themes with same name to test override behavior
 	testTheme1 := `{
@@ -116,9 +116,9 @@ func TestLoadThemesFromDirectories(t *testing.T) {
 	}`
 
 	// Write themes to different directories
-	os.WriteFile(filepath.Join(userConfig, "opencode", "themes", "override-test.json"), []byte(testTheme1), 0644)
-	os.WriteFile(filepath.Join(projectRoot, ".opencode", "themes", "override-test.json"), []byte(testTheme2), 0644)
-	os.WriteFile(filepath.Join(cwd, ".opencode", "themes", "override-test.json"), []byte(testTheme3), 0644)
+	os.WriteFile(filepath.Join(userConfig, "playscape", "themes", "override-test.json"), []byte(testTheme1), 0644)
+	os.WriteFile(filepath.Join(projectRoot, ".playscape", "themes", "override-test.json"), []byte(testTheme2), 0644)
+	os.WriteFile(filepath.Join(cwd, ".playscape", "themes", "override-test.json"), []byte(testTheme3), 0644)
 
 	// Load themes
 	err := LoadThemesFromDirectories(userConfig, projectRoot, cwd)

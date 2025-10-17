@@ -6,8 +6,8 @@ import { Bus } from "../bus"
 import { Log } from "../util/log"
 
 declare global {
-  const OPENCODE_VERSION: string
-  const OPENCODE_CHANNEL: string
+  const PLAYSCAPE_VERSION: string
+  const PLAYSCAPE_CHANNEL: string
 }
 
 export namespace Installation {
@@ -50,7 +50,7 @@ export namespace Installation {
   }
 
   export async function method() {
-    if (process.execPath.includes(path.join(".opencode", "bin"))) return "curl"
+    if (process.execPath.includes(path.join(".playscape", "bin"))) return "curl"
     if (process.execPath.includes(path.join(".local", "bin"))) return "curl"
     const exec = process.execPath.toLowerCase()
 
@@ -137,9 +137,9 @@ export namespace Installation {
       })
   }
 
-  export const VERSION = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
-  export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
-  export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}`
+  export const VERSION = typeof PLAYSCAPE_VERSION === "string" ? PLAYSCAPE_VERSION : "local"
+  export const CHANNEL = typeof PLAYSCAPE_CHANNEL === "string" ? PLAYSCAPE_CHANNEL : "local"
+  export const USER_AGENT = `playscape/${CHANNEL}/${VERSION}`
 
   export async function latest() {
     return fetch(`https://registry.npmjs.org/opencode-ai/${CHANNEL}`)

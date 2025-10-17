@@ -66,7 +66,7 @@ export namespace Share {
   }
 
   export const URL =
-    process.env["OPENCODE_API"] ??
+    process.env["PLAYSCAPE_API"] ??
     (Installation.isPreview() || Installation.isLocal() ? "https://api.dev.opencode.ai" : "https://api.opencode.ai")
 
   export async function create(sessionID: string) {

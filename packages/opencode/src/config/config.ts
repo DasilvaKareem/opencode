@@ -32,14 +32,14 @@ export namespace Config {
     }
 
     // Override with custom config if provided
-    if (Flag.OPENCODE_CONFIG) {
-      result = mergeDeep(result, await loadFile(Flag.OPENCODE_CONFIG))
-      log.debug("loaded custom config", { path: Flag.OPENCODE_CONFIG })
+    if (Flag.PLAYSCAPE_CONFIG) {
+      result = mergeDeep(result, await loadFile(Flag.PLAYSCAPE_CONFIG))
+      log.debug("loaded custom config", { path: Flag.PLAYSCAPE_CONFIG })
     }
 
-    if (Flag.OPENCODE_CONFIG_CONTENT) {
-      result = mergeDeep(result, JSON.parse(Flag.OPENCODE_CONFIG_CONTENT))
-      log.debug("loaded custom config from OPENCODE_CONFIG_CONTENT")
+    if (Flag.PLAYSCAPE_CONFIG_CONTENT) {
+      result = mergeDeep(result, JSON.parse(Flag.PLAYSCAPE_CONFIG_CONTENT))
+      log.debug("loaded custom config from PLAYSCAPE_CONFIG_CONTENT")
     }
 
     for (const [key, value] of Object.entries(auth)) {
@@ -57,7 +57,7 @@ export namespace Config {
     const directories = [
       Global.Path.config,
       ...(await Array.fromAsync(
-        Filesystem.up({ targets: [".opencode"], start: Instance.directory, stop: Instance.worktree }),
+        Filesystem.up({ targets: [".playscape"], start: Instance.directory, stop: Instance.worktree }),
       )),
     ]
 
@@ -80,8 +80,8 @@ export namespace Config {
       })
     }
 
-    if (Flag.OPENCODE_PERMISSION) {
-      result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.OPENCODE_PERMISSION))
+    if (Flag.PLAYSCAPE_PERMISSION) {
+      result.permission = mergeDeep(result.permission ?? {}, JSON.parse(Flag.PLAYSCAPE_PERMISSION))
     }
 
     if (!result.username) result.username = os.userInfo().username
@@ -167,7 +167,7 @@ export namespace Config {
       if (!md.data) continue
 
       const name = (() => {
-        const patterns = ["/.opencode/command/", "/command/"]
+        const patterns = ["/.playscape/command/", "/command/"]
         const pattern = patterns.find((p) => item.includes(p))
 
         if (pattern) {
@@ -203,8 +203,8 @@ export namespace Config {
 
       // Extract relative path from agent folder for nested agents
       let agentName = path.basename(item, ".md")
-      const agentFolderPath = item.includes("/.opencode/agent/")
-        ? item.split("/.opencode/agent/")[1]
+      const agentFolderPath = item.includes("/.playscape/agent/")
+        ? item.split("/.playscape/agent/")[1]
         : item.includes("/agent/")
           ? item.split("/agent/")[1]
           : agentName + ".md"

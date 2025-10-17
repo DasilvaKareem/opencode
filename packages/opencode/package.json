@@ -1,9 +1,9 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "version": "0.15.6",
-  "name": "opencode",
+  "name": "playscape",
   "type": "module",
-  "private": true,
+  "private": false,
   "scripts": {
     "typecheck": "tsgo --noEmit",
     "test": "bun test",
@@ -11,7 +11,15 @@
     "dev": "bun run ./src/index.ts"
   },
   "bin": {
-    "opencode": "./bin/opencode"
+    "playscape": "./bin/playscape"
+  },
+  "description": "AI-powered coding assistant for your terminal",
+  "keywords": ["ai", "cli", "coding", "assistant", "terminal", "developer-tools"],
+  "author": "Kareem Da Silva",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kareemdasilva/playscape"
   },
   "exports": {
     "./*": "./src/*.ts"

@@ -56,7 +56,7 @@ export const AttachCommand = cmd({
       env: {
         ...process.env,
         CGO_ENABLED: "0",
-        OPENCODE_SERVER: args.server,
+        PLAYSCAPE_SERVER: args.server,
       },
     })
 
