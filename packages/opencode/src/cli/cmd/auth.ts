@@ -102,42 +102,8 @@ export const AuthLoginCommand = cmd({
           prompts.outro("Done")
           return
         }
-        await ModelsDev.refresh().catch(() => {})
-        const providers = await ModelsDev.get()
-        const priority: Record<string, number> = {
-          opencode: 0,
-          anthropic: 1,
-          "github-copilot": 2,
-          openai: 3,
-          google: 4,
-          openrouter: 5,
-          vercel: 6,
-        }
-        let provider = await prompts.autocomplete({
-          message: "Select provider",
-          maxItems: 8,
-          options: [
-            ...pipe(
-              providers,
-              values(),
-              sortBy(
-                (x) => priority[x.id] ?? 99,
-                (x) => x.name ?? x.id,
-              ),
-              map((x) => ({
-                label: x.name,
-                value: x.id,
-                hint: priority[x.id] <= 1 ? "recommended" : undefined,
-              })),
-            ),
-            {
-              value: "other",
-              label: "Other",
-            },
-          ],
-        })
-
-        if (prompts.isCancel(provider)) throw new UI.CancelledError()
+        // Skip provider selection and go directly to opencode
+        let provider = "opencode"
 
         const plugin = await Plugin.list().then((x) => x.find((x) => x.auth?.provider === provider))
         if (plugin && plugin.auth) {
@@ -256,7 +222,87 @@ export const AuthLoginCommand = cmd({
         }
 
         if (provider === "opencode") {
-          prompts.log.info("Create an api key at https://playscape.ai/auth")
+          const { AuthPlayscapeSupabase } = await import("../../auth/playscape-supabase")
+
+          const authMethod = await prompts.select({
+            message: "Select authentication method",
+            options: [
+              { label: "Google OAuth", value: "google" },
+              { label: "Discord OAuth", value: "discord" },
+              { label: "Email & Password", value: "email" },
+              { label: "API Key", value: "api" },
+            ],
+          })
+
+          if (prompts.isCancel(authMethod)) throw new UI.CancelledError()
+
+          if (authMethod === "google" || authMethod === "discord") {
+            const oauthResult = await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
+            prompts.log.info(`Go to: \x1b]8;;${oauthResult.url}\x1b\\${oauthResult.url}\x1b]8;;\x1b\\`)
+
+            const code = await prompts.text({
+              message: "Paste the authorization code from the callback URL: ",
+              validate: (x) => (x && x.length > 0 ? undefined : "Required"),
+            })
+
+            if (prompts.isCancel(code)) throw new UI.CancelledError()
+
+            try {
+              const user = await AuthPlayscapeSupabase.handleOAuthCallback(code)
+              prompts.log.success(`Logged in as ${user.email}`)
+              prompts.outro("Done")
+              return
+            } catch (error: any) {
+              prompts.log.error(error.message || "OAuth authentication failed")
+              prompts.outro("Done")
+              return
+            }
+          }
+
+          if (authMethod === "email") {
+            const email = await prompts.text({
+              message: "Email address",
+              validate: (x) => (x && x.includes("@") ? undefined : "Invalid email"),
+            })
+            if (prompts.isCancel(email)) throw new UI.CancelledError()
+
+            const password = await prompts.password({
+              message: "Password",
+              validate: (x) => (x && x.length >= 6 ? undefined : "Password must be at least 6 characters"),
+            })
+            if (prompts.isCancel(password)) throw new UI.CancelledError()
+
+            const action = await prompts.select({
+              message: "Action",
+              options: [
+                { label: "Log in", value: "login" },
+                { label: "Sign up", value: "signup" },
+              ],
+            })
+            if (prompts.isCancel(action)) throw new UI.CancelledError()
+
+            try {
+              const user =
+                action === "login"
+                  ? await AuthPlayscapeSupabase.loginWithEmail(email, password)
+                  : await AuthPlayscapeSupabase.signUpWithEmail(email, password)
+
+              prompts.log.success(`${action === "login" ? "Logged in" : "Signed up"} as ${user.email}`)
+              prompts.outro("Done")
+              return
+            } catch (error: any) {
+              prompts.log.error(error.message || "Authentication failed")
+              prompts.outro("Done")
+              return
+            }
+          }
+
+          if (authMethod === "api") {
+            prompts.log.info("Create an api key at https://playscape.ai/auth")
+          } else {
+            prompts.outro("Done")
+            return
+          }
         }
 
         if (provider === "vercel") {

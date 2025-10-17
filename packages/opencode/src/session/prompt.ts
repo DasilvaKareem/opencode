@@ -9,6 +9,7 @@ import { SessionRevert } from "./revert"
 import { Session } from "."
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
+import { Auth } from "../auth"
 import {
   generateText,
   streamText,
@@ -152,10 +153,25 @@ export namespace SessionPrompt {
       })
     }
     const agent = await Agent.get(input.agent ?? "build")
-    const model = await resolveModel({
+    const resolvedModel = await resolveModel({
       agent,
       model: input.model,
-    }).then((x) => Provider.getModel(x.providerID, x.modelID))
+    })
+
+    // Try to get the model, and if credentials are missing, prompt for Playscape login
+    let model
+    try {
+      model = await Provider.getModel(resolvedModel.providerID, resolvedModel.modelID)
+    } catch (e) {
+      if (e instanceof Provider.MissingCredentialsError) {
+        await Auth.promptLogin("playscape-supabase")
+        // After login, invalidate the provider state and retry
+        await Instance.dispose()
+        model = await Provider.getModel(resolvedModel.providerID, resolvedModel.modelID)
+      } else {
+        throw e
+      }
+    }
 
     using abort = lock(input.sessionID)
 

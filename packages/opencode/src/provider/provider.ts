@@ -457,7 +457,14 @@ export namespace Provider {
     })
 
     const provider = s.providers[providerID]
-    if (!provider) throw new ModelNotFoundError({ providerID, modelID })
+    if (!provider) {
+      // Check if credentials are missing
+      const hasCredentials = await Auth.ensureCredentials(providerID)
+      if (!hasCredentials) {
+        throw new MissingCredentialsError({ providerID })
+      }
+      throw new ModelNotFoundError({ providerID, modelID })
+    }
     const info = provider.info.models[modelID]
     if (!info) throw new ModelNotFoundError({ providerID, modelID })
     const sdk = await getSDK(provider.info, info)
@@ -528,15 +535,23 @@ export namespace Provider {
     const cfg = await Config.get()
     if (cfg.model) return parseModel(cfg.model)
 
-    // this will be adjusted when migration to opentui is complete,
-    // for now we just read the tui state toml file directly
-    //
-    // NOTE: cannot just import file as toml without cleaning due to lack of
-    // support for date/time references in Bun toml parser: https://github.com/oven-sh/bun/issues/22426
+    // Force AWS Bedrock as the default provider
+    const providers = await list()
+    const bedrock = providers["amazon-bedrock"]
+    if (bedrock) {
+      const [model] = sort(Object.values(bedrock.info.models))
+      if (model) {
+        return {
+          providerID: "amazon-bedrock",
+          modelID: model.id,
+        }
+      }
+    }
+
+    // Fallback to original logic if Bedrock not available
     const lastused = await Bun.file(path.join(Global.Path.state, "tui"))
       .text()
       .then((text) => {
-        // remove the date/time references since Bun toml parser doesn't support yet
         const cleaned = text
           .split("\n")
           .filter((line) => !line.trim().startsWith("last_used ="))
@@ -594,6 +609,13 @@ export namespace Provider {
 
   export const InitError = NamedError.create(
     "ProviderInitError",
+    z.object({
+      providerID: z.string(),
+    }),
+  )
+
+  export const MissingCredentialsError = NamedError.create(
+    "ProviderMissingCredentialsError",
     z.object({
       providerID: z.string(),
     }),
