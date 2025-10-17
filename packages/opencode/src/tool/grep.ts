@@ -4,6 +4,9 @@ import { Ripgrep } from "../file/ripgrep"
 
 import DESCRIPTION from "./grep.txt"
 import { Instance } from "../project/instance"
+import { Permission } from "../permission"
+import { Filesystem } from "../util/filesystem"
+import path from "path"
 
 export const GrepTool = Tool.define("grep", {
   description: DESCRIPTION,
@@ -12,12 +15,29 @@ export const GrepTool = Tool.define("grep", {
     path: z.string().optional().describe("The directory to search in. Defaults to the current working directory."),
     include: z.string().optional().describe('File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")'),
   }),
-  async execute(params) {
+  async execute(params, ctx) {
     if (!params.pattern) {
       throw new Error("pattern is required")
     }
 
-    const searchPath = params.path || Instance.directory
+    let searchPath = params.path || Instance.directory
+    searchPath = path.isAbsolute(searchPath) ? searchPath : path.resolve(Instance.directory, searchPath)
+
+    // Check if searching outside working directory and ask for permission
+    if (!Filesystem.contains(Instance.directory, searchPath)) {
+      await Permission.ask({
+        type: "grep:external",
+        pattern: `${searchPath}/**`,
+        title: `Search files in ${searchPath}`,
+        sessionID: ctx.sessionID,
+        messageID: ctx.messageID,
+        callID: ctx.callID,
+        metadata: {
+          path: searchPath,
+          pattern: params.pattern,
+        },
+      })
+    }
 
     const rgPath = await Ripgrep.filepath()
     const args = ["-nH", "--field-match-separator=|", params.pattern]

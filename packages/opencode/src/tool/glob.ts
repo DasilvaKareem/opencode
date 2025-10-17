@@ -4,6 +4,8 @@ import { Tool } from "./tool"
 import DESCRIPTION from "./glob.txt"
 import { Ripgrep } from "../file/ripgrep"
 import { Instance } from "../project/instance"
+import { Permission } from "../permission"
+import { Filesystem } from "../util/filesystem"
 
 export const GlobTool = Tool.define("glob", {
   description: DESCRIPTION,
@@ -16,9 +18,25 @@ export const GlobTool = Tool.define("glob", {
         `The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.`,
       ),
   }),
-  async execute(params) {
+  async execute(params, ctx) {
     let search = params.path ?? Instance.directory
     search = path.isAbsolute(search) ? search : path.resolve(Instance.directory, search)
+
+    // Check if searching outside working directory and ask for permission
+    if (!Filesystem.contains(Instance.directory, search)) {
+      await Permission.ask({
+        type: "glob:external",
+        pattern: `${search}/**`,
+        title: `Search files in ${search}`,
+        sessionID: ctx.sessionID,
+        messageID: ctx.messageID,
+        callID: ctx.callID,
+        metadata: {
+          path: search,
+          pattern: params.pattern,
+        },
+      })
+    }
 
     const limit = 100
     const files = []

@@ -35,8 +35,23 @@ export const EditTool = Tool.define("edit", {
     }
 
     const filePath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
+
+    // Check if file is outside working directory and ask for permission
     if (!Filesystem.contains(Instance.directory, filePath)) {
-      throw new Error(`File ${filePath} is not in the current working directory`)
+      const parentDir = path.dirname(filePath)
+
+      await Permission.ask({
+        type: "edit:external",
+        pattern: `${parentDir}/**`,
+        title: `Edit files in ${parentDir}`,
+        sessionID: ctx.sessionID,
+        messageID: ctx.messageID,
+        callID: ctx.callID,
+        metadata: {
+          path: parentDir,
+          file: filePath,
+        },
+      })
     }
 
     const agent = await Agent.get(ctx.agent)

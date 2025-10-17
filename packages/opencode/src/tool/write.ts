@@ -21,8 +21,23 @@ export const WriteTool = Tool.define("write", {
   }),
   async execute(params, ctx) {
     const filepath = path.isAbsolute(params.filePath) ? params.filePath : path.join(Instance.directory, params.filePath)
+
+    // Check if file is outside working directory and ask for permission
     if (!Filesystem.contains(Instance.directory, filepath)) {
-      throw new Error(`File ${filepath} is not in the current working directory`)
+      const parentDir = path.dirname(filepath)
+
+      await Permission.ask({
+        type: "write:external",
+        pattern: `${parentDir}/**`,
+        title: `Write files in ${parentDir}`,
+        sessionID: ctx.sessionID,
+        messageID: ctx.messageID,
+        callID: ctx.callID,
+        metadata: {
+          path: parentDir,
+          file: filepath,
+        },
+      })
     }
 
     const file = Bun.file(filepath)

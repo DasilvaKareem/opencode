@@ -4,6 +4,8 @@ import * as path from "path"
 import DESCRIPTION from "./ls.txt"
 import { Instance } from "../project/instance"
 import { Ripgrep } from "../file/ripgrep"
+import { Permission } from "../permission"
+import { Filesystem } from "../util/filesystem"
 
 export const IGNORE_PATTERNS = [
   "node_modules/",
@@ -40,8 +42,23 @@ export const ListTool = Tool.define("list", {
     path: z.string().describe("The absolute path to the directory to list (must be absolute, not relative)").optional(),
     ignore: z.array(z.string()).describe("List of glob patterns to ignore").optional(),
   }),
-  async execute(params) {
+  async execute(params, ctx) {
     const searchPath = path.resolve(Instance.directory, params.path || ".")
+
+    // Check if listing outside working directory and ask for permission
+    if (!Filesystem.contains(Instance.directory, searchPath)) {
+      await Permission.ask({
+        type: "ls:external",
+        pattern: `${searchPath}/**`,
+        title: `List files in ${searchPath}`,
+        sessionID: ctx.sessionID,
+        messageID: ctx.messageID,
+        callID: ctx.callID,
+        metadata: {
+          path: searchPath,
+        },
+      })
+    }
 
     const ignoreGlobs = IGNORE_PATTERNS.map((p) => `!${p}*`).concat(params.ignore?.map((p) => `!${p}`) || [])
     const files = []

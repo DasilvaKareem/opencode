@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -64,8 +65,24 @@ func main() {
 		}
 	}
 
+	// Get current working directory to pass to all API requests
+	cwd, err := os.Getwd()
+	if err != nil {
+		slog.Error("Failed to get working directory", "error", err)
+		os.Exit(1)
+	}
+
+	// Create middleware to inject directory query parameter in all requests
+	directoryMiddleware := func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		q := req.URL.Query()
+		q.Set("directory", cwd)
+		req.URL.RawQuery = q.Encode()
+		return next(req)
+	}
+
 	httpClient := opencode.NewClient(
 		option.WithBaseURL(url),
+		option.WithMiddleware(directoryMiddleware),
 	)
 
 	var agents []opencode.Agent
