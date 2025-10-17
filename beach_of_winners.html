@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beach of Winners</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial Black', sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 24px;
+            text-shadow: 2px 2px 4px black;
+            text-align: center;
+            pointer-events: none;
+        }
+        #title-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        #title-screen h1 {
+            font-size: 72px;
+            color: #FFD700;
+            text-shadow: 4px 4px 8px rgba(0,0,0,0.5);
+            margin: 20px;
+            animation: pulse 2s infinite;
+        }
+        #title-screen .subtitle {
+            font-size: 32px;
+            color: white;
+            margin: 10px;
+        }
+        #title-screen button {
+            font-size: 32px;
+            padding: 20px 60px;
+            margin: 20px;
+            background: #FFD700;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            font-family: 'Arial Black', sans-serif;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        #title-screen button:hover {
+            transform: scale(1.1);
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px black;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="title-screen">
+        <h1>🏖️ BEACH OF WINNERS 🏐</h1>
+        <div class="subtitle">2-Player Volleyball Championship</div>
+        <button onclick="startGame()">START GAME</button>
+    </div>
+    
+    <div id="ui">
+        <div id="score">Player 1 (Blue): 0 | Player 2 (Red): 0</div>
+        <div id="message" style="font-size: 18px; margin-top: 10px;"></div>
+    </div>
+    
+    <div id="controls">
+        P1: WASD + SPACE | P2: Arrows + ENTER | R: Reset
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let player1, player2, ball, net, court;
+        let player1Score = 0, player2Score = 0;
+        let ballVelocity = new THREE.Vector3();
+        let player1Velocity = new THREE.Vector3();
+        let player2Velocity = new THREE.Vector3();
+        let gravity = -0.025;
+        let gameStarted = false;
+        let serving = true;
+        let player1Serve = true;
+        let message = '';
+        let messageTimer = 0;
+        let player1Grounded = true;
+        let player2Grounded = true;
+        let lastHitByPlayer1 = false;
+        let hitCount = 0;
+        let maxTouches = 3;
+        let ballOnPlayer1Side = true;
+        let player1CanHit = true;
+        let player2CanHit = false;
+        let hitCooldown = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 12, 18);
+            camera.lookAt(0, 2, 0);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            const sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            sunLight.position.set(10, 20, 10);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 2048;
+            sunLight.shadow.mapSize.height = 2048;
+            scene.add(sunLight);
+            
+            const courtGeometry = new THREE.PlaneGeometry(16, 20);
+            const courtMaterial = new THREE.MeshLambertMaterial({ color: 0xF4A460 });
+            court = new THREE.Mesh(courtGeometry, courtMaterial);
+            court.rotation.x = -Math.PI / 2;
+            court.receiveShadow = true;
+            scene.add(court);
+            
+            const lineGeometry = new THREE.BoxGeometry(16, 0.1, 0.2);
+            const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xFFFFFF });
+            const centerLine = new THREE.Mesh(lineGeometry, lineMaterial);
+            centerLine.position.set(0, 0.05, 0);
+            scene.add(centerLine);
+            
+            const netGeometry = new THREE.BoxGeometry(16, 3, 0.2);
+            const netMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0xFFFFFF,
+                transparent: true,
+                opacity: 0.7,
+                side: THREE.DoubleSide
+            });
+            net = new THREE.Mesh(netGeometry, netMaterial);
+            net.position.set(0, 1.5, 0);
+            net.castShadow = true;
+            scene.add(net);
+            
+            const postGeometry = new THREE.CylinderGeometry(0.1, 0.1, 3);
+            const postMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            const post1 = new THREE.Mesh(postGeometry, postMaterial);
+            post1.position.set(-8, 1.5, 0);
+            scene.add(post1);
+            const post2 = new THREE.Mesh(postGeometry, postMaterial);
+            post2.position.set(8, 1.5, 0);
+            scene.add(post2);
+            
+            const player1Geometry = new THREE.BoxGeometry(1, 2, 1);
+            const player1Material = new THREE.MeshLambertMaterial({ color: 0x0000FF });
+            player1 = new THREE.Mesh(player1Geometry, player1Material);
+            player1.position.set(-3, 1, 6);
+            player1.castShadow = true;
+            scene.add(player1);
+            
+            const player2Geometry = new THREE.BoxGeometry(1, 2, 1);
+            const player2Material = new THREE.MeshLambertMaterial({ color: 0xFF0000 });
+            player2 = new THREE.Mesh(player2Geometry, player2Material);
+            player2.position.set(3, 1, -6);
+            player2.castShadow = true;
+            scene.add(player2);
+            
+            const ballGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+            const ballMaterial = new THREE.MeshLambertMaterial({ color: 0xFFFFFF });
+            ball = new THREE.Mesh(ballGeometry, ballMaterial);
+            ball.position.set(-3, 2, 6);
+            ball.castShadow = true;
+            scene.add(ball);
+            
+            window.addEventListener('resize', onWindowResize);
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function startGame() {
+            document.getElementById('title-screen').style.display = 'none';
+            gameStarted = true;
+            resetBall();
+        }
+        
+        function resetBall() {
+            serving = true;
+            hitCount = 0;
+            hitCooldown = 0;
+            if (player1Serve) {
+                ball.position.set(player1.position.x, 2, player1.position.z);
+                ballOnPlayer1Side = true;
+                player1CanHit = true;
+                player2CanHit = false;
+            } else {
+                ball.position.set(player2.position.x, 2, player2.position.z);
+                ballOnPlayer1Side = false;
+                player1CanHit = false;
+                player2CanHit = true;
+            }
+            ballVelocity.set(0, 0, 0);
+        }
+        
+        function serveBall(isPlayer1) {
+            serving = false;
+            hitCount = 1;
+            hitCooldown = 10;
+            if (isPlayer1) {
+                ballVelocity.set(0, 0.4, -0.35);
+                lastHitByPlayer1 = true;
+                ballOnPlayer1Side = true;
+            } else {
+                ballVelocity.set(0, 0.4, 0.35);
+                lastHitByPlayer1 = false;
+                ballOnPlayer1Side = false;
+            }
+        }
+        
+        function showMessage(msg) {
+            message = msg;
+            messageTimer = 120;
+        }
+        
+        function score(isPlayer1) {
+            if (isPlayer1) {
+                player1Score++;
+                showMessage('PLAYER 1 SCORES!');
+                player1Serve = true;
+            } else {
+                player2Score++;
+                showMessage('PLAYER 2 SCORES!');
+                player1Serve = false;
+            }
+            document.getElementById('score').textContent = `Player 1 (Blue): ${player1Score} | Player 2 (Red): ${player2Score}`;
+            
+            if (player1Score >= 15 || player2Score >= 15) {
+                if (Math.abs(player1Score - player2Score) >= 2) {
+                    const winner = player1Score > player2Score ? 'PLAYER 1 WINS!' : 'PLAYER 2 WINS!';
+                    showMessage(winner);
+                    setTimeout(() => {
+                        player1Score = 0;
+                        player2Score = 0;
+                        document.getElementById('score').textContent = `Player 1 (Blue): ${player1Score} | Player 2 (Red): ${player2Score}`;
+                    }, 3000);
+                }
+            }
+            
+            setTimeout(resetBall, 1500);
+        }
+        
+        const keys = {};
+        document.addEventListener('keydown', (e) => {
+            keys[e.key.toLowerCase()] = true;
+            keys[e.key] = true;
+            
+            if (e.key === ' ' && serving && player1Serve) {
+                serveBall(true);
+            }
+            
+            if (e.key === 'Enter' && serving && !player1Serve) {
+                serveBall(false);
+            }
+            
+            if (e.key === ' ' && player1Grounded) {
+                player1Velocity.y = 0.35;
+                player1Grounded = false;
+            }
+            
+            if (e.key === 'Enter' && player2Grounded) {
+                player2Velocity.y = 0.35;
+                player2Grounded = false;
+            }
+            
+            if (e.key.toLowerCase() === 'r') {
+                player1Score = 0;
+                player2Score = 0;
+                document.getElementById('score').textContent = `Player 1 (Blue): ${player1Score} | Player 2 (Red): ${player2Score}`;
+                resetBall();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key.toLowerCase()] = false;
+            keys[e.key] = false;
+        });
+        
+        function updatePlayer1() {
+            const speed = 0.25;
+            
+            if (keys['a'] && player1.position.x > -7) {
+                player1.position.x -= speed;
+            }
+            if (keys['d'] && player1.position.x < 7) {
+                player1.position.x += speed;
+            }
+            if (keys['w'] && player1.position.z > 1) {
+                player1.position.z -= speed;
+            }
+            if (keys['s'] && player1.position.z < 9) {
+                player1.position.z += speed;
+            }
+            
+            player1Velocity.y += gravity * 2;
+            player1.position.y += player1Velocity.y;
+            
+            if (player1.position.y <= 1) {
+                player1.position.y = 1;
+                player1Velocity.y = 0;
+                player1Grounded = true;
+            } else {
+                player1Grounded = false;
+            }
+        }
+        
+        function updatePlayer2() {
+            const speed = 0.25;
+            
+            if (keys['ArrowLeft'] && player2.position.x > -7) {
+                player2.position.x -= speed;
+            }
+            if (keys['ArrowRight'] && player2.position.x < 7) {
+                player2.position.x += speed;
+            }
+            if (keys['ArrowUp'] && player2.position.z > -9) {
+                player2.position.z -= speed;
+            }
+            if (keys['ArrowDown'] && player2.position.z < -1) {
+                player2.position.z += speed;
+            }
+            
+            player2Velocity.y += gravity * 2;
+            player2.position.y += player2Velocity.y;
+            
+            if (player2.position.y <= 1) {
+                player2.position.y = 1;
+                player2Velocity.y = 0;
+                player2Grounded = true;
+            } else {
+                player2Grounded = false;
+            }
+        }
+        
+        function updateBall() {
+            if (serving) {
+                if (player1Serve) {
+                    ball.position.x = player1.position.x;
+                    ball.position.z = player1.position.z;
+                } else {
+                    ball.position.x = player2.position.x;
+                    ball.position.z = player2.position.z;
+                }
+                return;
+            }
+            
+            if (hitCooldown > 0) {
+                hitCooldown--;
+            }
+            
+            ballVelocity.y += gravity;
+            ball.position.add(ballVelocity);
+            
+            if (ball.position.x < -7.5 || ball.position.x > 7.5) {
+                ballVelocity.x *= -0.7;
+                ball.position.x = ball.position.x < 0 ? -7.5 : 7.5;
+            }
+            
+            if (ball.position.z < -0.3 && ball.position.z > 0.3 && 
+                ball.position.y < 3 && ball.position.y > 0.5) {
+                ballVelocity.z *= -0.8;
+                ballVelocity.y *= 0.8;
+                ball.position.z = ball.position.z < 0 ? -0.3 : 0.3;
+            }
+            
+            const prevBallOnPlayer1Side = ballOnPlayer1Side;
+            if (ball.position.z > 0.5) {
+                ballOnPlayer1Side = true;
+            } else if (ball.position.z < -0.5) {
+                ballOnPlayer1Side = false;
+            }
+            
+            if (ballOnPlayer1Side !== prevBallOnPlayer1Side) {
+                hitCount = 0;
+                hitCooldown = 5;
+                if (ballOnPlayer1Side) {
+                    player1CanHit = true;
+                    player2CanHit = false;
+                } else {
+                    player1CanHit = false;
+                    player2CanHit = true;
+                }
+            }
+            
+            const player1Dist = ball.position.distanceTo(player1.position);
+            if (player1Dist < 1.3 && player1CanHit && hitCooldown === 0) {
+                if (hitCount < maxTouches) {
+                    const dx = ball.position.x - player1.position.x;
+                    const dy = ball.position.y - player1.position.y;
+                    const dz = ball.position.z - player1.position.z;
+                    
+                    const spiking = !player1Grounded && dy > 0.5;
+                    const hitPower = spiking ? 0.6 : 0.4;
+                    
+                    ballVelocity.set(
+                        dx * 0.4,
+                        spiking ? 0.2 : 0.5,
+                        -Math.abs(dz) * hitPower - 0.2
+                    );
+                    
+                    lastHitByPlayer1 = true;
+                    hitCount++;
+                    hitCooldown = 15;
+                    
+                    if (hitCount >= maxTouches) {
+                        showMessage('Max touches - must go over!');
+                        player1CanHit = false;
+                    }
+                }
+            }
+            
+            const player2Dist = ball.position.distanceTo(player2.position);
+            if (player2Dist < 1.3 && player2CanHit && hitCooldown === 0) {
+                if (hitCount < maxTouches) {
+                    const dx = ball.position.x - player2.position.x;
+                    const dy = ball.position.y - player2.position.y;
+                    const dz = ball.position.z - player2.position.z;
+                    
+                    const spiking = !player2Grounded && dy > 0.5;
+                    const hitPower = spiking ? 0.6 : 0.4;
+                    
+                    ballVelocity.set(
+                        dx * 0.4,
+                        spiking ? 0.2 : 0.5,
+                        Math.abs(dz) * hitPower + 0.2
+                    );
+                    
+                    lastHitByPlayer1 = false;
+                    hitCount++;
+                    hitCooldown = 15;
+                    
+                    if (hitCount >= maxTouches) {
+                        showMessage('Max touches - must go over!');
+                        player2CanHit = false;
+                    }
+                }
+            }
+            
+            if (ball.position.y < 0.4) {
+                if (ball.position.z > 0.5) {
+                    score(false);
+                } else if (ball.position.z < -0.5) {
+                    score(true);
+                } else {
+                    ball.position.y = 0.4;
+                    ballVelocity.y *= -0.5;
+                    ballVelocity.x *= 0.7;
+                    ballVelocity.z *= 0.7;
+                }
+            }
+            
+            if (ball.position.z > 10 || ball.position.z < -10) {
+                if (ball.position.z > 10) {
+                    score(false);
+                } else {
+                    score(true);
+                }
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (gameStarted) {
+                updatePlayer1();
+                updatePlayer2();
+                updateBall();
+                
+                if (messageTimer > 0) {
+                    messageTimer--;
+                    document.getElementById('message').textContent = message;
+                } else {
+                    document.getElementById('message').textContent = '';
+                }
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        init();
+        animate();
+    </script>
+</body>
+</html>

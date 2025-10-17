@@ -1,0 +1,81 @@
+{
+  "agent": "asset",
+  "version": "1.0.0",
+  "capabilities": {
+    "assetTypes": [
+      {
+        "type": "sprite",
+        "description": "2D game sprites and characters",
+        "provider": "fal",
+        "parameters": ["aspectRatio", "resolution", "seed"]
+      },
+      {
+        "type": "texture",
+        "description": "Textures and materials for 3D models",
+        "provider": "fal",
+        "parameters": ["aspectRatio", "resolution", "seed"]
+      },
+      {
+        "type": "3d-model",
+        "description": "3D models in various formats",
+        "provider": "fal",
+        "parameters": ["format", "quality", "seed"],
+        "supportedFormats": ["glb", "usdz", "fbx", "obj", "stl"]
+      },
+      {
+        "type": "sfx",
+        "description": "Sound effects and audio clips",
+        "provider": "elevenlabs",
+        "parameters": ["duration"]
+      },
+      {
+        "type": "music",
+        "description": "Background music and soundtracks",
+        "provider": "elevenlabs",
+        "parameters": ["duration", "genre"]
+      },
+      {
+        "type": "voice",
+        "description": "Voice-over and dialogue",
+        "provider": "elevenlabs",
+        "parameters": ["duration"]
+      },
+      {
+        "type": "video",
+        "description": "Video content including anime-style animations",
+        "provider": "fal",
+        "parameters": ["aspectRatio", "resolution", "seed"]
+      }
+    ],
+    "features": [
+      "Batch asset generation with parallel processing",
+      "Cost tracking and budgeting",
+      "Dependency resolution between assets",
+      "Progress tracking with real-time updates",
+      "Organized file output with manifests",
+      "Multiple provider support (Fal AI, ElevenLabs)"
+    ],
+    "limitations": [
+      "Requires API keys for Fal AI and ElevenLabs",
+      "Subject to provider rate limits and costs",
+      "Video generation quality depends on prompt quality"
+    ]
+  },
+  "examples": [
+    {
+      "task": "Generate anime video",
+      "capability": "video",
+      "supported": true
+    },
+    {
+      "task": "Generate 3D character model",
+      "capability": "3d-model",
+      "supported": true
+    },
+    {
+      "task": "Generate background music",
+      "capability": "music",
+      "supported": true
+    }
+  ]
+}

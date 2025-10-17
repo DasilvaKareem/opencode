@@ -2,6 +2,7 @@ import { Ripgrep } from "../file/ripgrep"
 import { Global } from "../global"
 import { Filesystem } from "../util/filesystem"
 import { Config } from "../config/config"
+import { Capabilities } from "../agent/capabilities"
 
 import { Instance } from "../project/instance"
 import path from "path"
@@ -129,5 +130,14 @@ export namespace SystemPrompt {
       default:
         return [PROMPT_TITLE]
     }
+  }
+
+  /**
+   * Load agent capabilities and format as system prompt
+   */
+  export async function capabilities(agentName: string): Promise<string[]> {
+    const caps = await Capabilities.load(agentName)
+    if (!caps) return []
+    return [Capabilities.formatAsPrompt(caps)]
   }
 }
