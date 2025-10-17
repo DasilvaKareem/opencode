@@ -124,7 +124,7 @@ type IssueQueryResponse = {
   }
 }
 
-const WORKFLOW_FILE = ".github/workflows/opencode.yml"
+const WORKFLOW_FILE = ".github/workflows/playscape.yml"
 
 export const GithubCommand = cmd({
   command: "github",
@@ -176,7 +176,7 @@ export const GithubInstallCommand = cmd({
                 "",
                 "    3. Go to a GitHub issue and comment `/oc summarize` to see the agent in action",
                 "",
-                "   Learn more about the GitHub agent - https://opencode.ai/docs/github/#usage-examples",
+                "   Learn more about the GitHub agent - https://playscape.ai/docs/github/#usage-examples",
               ].join("\n"),
             )
           }
@@ -267,7 +267,7 @@ export const GithubInstallCommand = cmd({
             if (installation) return s.stop("GitHub app already installed")
 
             // Open browser
-            const url = "https://github.com/apps/opencode-agent"
+            const url = "https://github.com/apps/playscape-agent"
             const command =
               process.platform === "darwin"
                 ? `open "${url}"`
@@ -319,7 +319,7 @@ export const GithubInstallCommand = cmd({
 
             await Bun.write(
               path.join(app.root, WORKFLOW_FILE),
-              `name: opencode
+              `name: Playscape
 
 on:
   issue_comment:
@@ -330,8 +330,8 @@ jobs:
     if: |
       contains(github.event.comment.body, ' /oc') ||
       startsWith(github.event.comment.body, '/oc') ||
-      contains(github.event.comment.body, ' /opencode') ||
-      startsWith(github.event.comment.body, '/opencode')
+      contains(github.event.comment.body, ' /playscape') ||
+      startsWith(github.event.comment.body, '/playscape')
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -342,8 +342,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run opencode
-        uses: sst/opencode/github@latest${envStr}
+      - name: Run Playscape
+        uses: sst/playscape/github@latest${envStr}
         with:
           model: ${provider}/${model}`,
             )
@@ -387,7 +387,7 @@ export const GithubRunCommand = cmd({
       const actor = context.actor
       const issueId = payload.issue.number
       const runUrl = `/${owner}/${repo}/actions/runs/${runId}`
-      const shareBaseUrl = isMock ? "https://dev.opencode.ai" : "https://opencode.ai"
+      const shareBaseUrl = isMock ? "https://dev.playscape.ai" : "https://playscape.ai"
 
       let appToken: string
       let octoRest: Octokit
@@ -524,9 +524,9 @@ export const GithubRunCommand = cmd({
       async function getUserPrompt() {
         let prompt = (() => {
           const body = payload.comment.body.trim()
-          if (body === "/opencode" || body === "/oc") return "Summarize this thread"
-          if (body.includes("/opencode") || body.includes("/oc")) return body
-          throw new Error("Comments must mention `/opencode` or `/oc`")
+          if (body === "/playscape" || body === "/oc") return "Summarize this thread"
+          if (body.includes("/playscape") || body.includes("/oc")) return body
+          throw new Error("Comments must mention `/playscape` or `/oc`")
         })()
 
         // Handle images
@@ -647,7 +647,7 @@ export const GithubRunCommand = cmd({
       }
 
       async function chat(message: string, files: PromptFiles = []) {
-        console.log("Sending message to opencode...")
+        console.log("Sending message to Playscape...")
 
         const result = await SessionPrompt.prompt({
           sessionID: session.id,
@@ -700,7 +700,7 @@ export const GithubRunCommand = cmd({
 
       async function getOidcToken() {
         try {
-          return await core.getIDToken("opencode-github-action")
+          return await core.getIDToken("playscape-github-action")
         } catch (error) {
           console.error("Failed to get OIDC token:", error)
           throw new Error(
@@ -749,8 +749,8 @@ export const GithubRunCommand = cmd({
 
         await $`git config --local --unset-all ${config}`
         await $`git config --local ${config} "AUTHORIZATION: basic ${newCredentials}"`
-        await $`git config --global user.name "opencode-agent[bot]"`
-        await $`git config --global user.email "opencode-agent[bot]@users.noreply.github.com"`
+        await $`git config --global user.name "playscape-agent[bot]"`
+        await $`git config --global user.email "playscape-agent[bot]@users.noreply.github.com"`
       }
 
       async function restoreGitConfig() {
@@ -795,7 +795,7 @@ export const GithubRunCommand = cmd({
           .replace(/\.\d{3}Z/, "")
           .split("T")
           .join("")
-        return `opencode/${type}${issueId}-${timestamp}`
+        return `playscape/${type}${issueId}-${timestamp}`
       }
 
       async function pushToNewBranch(summary: string, branch: string) {

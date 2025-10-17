@@ -28,12 +28,12 @@ if (typeof OPENCODE_TUI_PATH !== "undefined") {
 
 export const TuiCommand = cmd({
   command: "$0 [project]",
-  describe: "start opencode tui",
+  describe: "start Playscape tui",
   builder: (yargs) =>
     yargs
       .positional("project", {
         type: "string",
-        describe: "path to start opencode in",
+        describe: "path to start Playscape in",
       })
       .option("model", {
         type: "string",
@@ -201,7 +201,7 @@ export const TuiCommand = cmd({
 })
 
 /**
- * Get the correct command to run opencode CLI
+ * Get the correct command to run Playscape CLI
  * In development: ["bun", "run", "packages/opencode/src/index.ts"]
  * In production: ["/path/to/opencode"]
  */

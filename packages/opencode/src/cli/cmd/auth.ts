@@ -70,7 +70,7 @@ export const AuthLoginCommand = cmd({
   describe: "log in to a provider",
   builder: (yargs) =>
     yargs.positional("url", {
-      describe: "opencode auth provider",
+  describe: "Playscape auth provider",
       type: "string",
     }),
   async handler(args) {
@@ -235,7 +235,7 @@ export const AuthLoginCommand = cmd({
           provider = provider.replace(/^@ai-sdk\//, "")
           if (prompts.isCancel(provider)) throw new UI.CancelledError()
           prompts.log.warn(
-            `This only stores a credential for ${provider} - you will need configure it in opencode.json, check the docs for examples.`,
+            `This only stores a credential for ${provider} - you will need configure it in playscape.json, check the docs for examples.`,
           )
         }
 
@@ -256,7 +256,7 @@ export const AuthLoginCommand = cmd({
         }
 
         if (provider === "opencode") {
-          prompts.log.info("Create an api key at https://opencode.ai/auth")
+          prompts.log.info("Create an api key at https://playscape.ai/auth")
         }
 
         if (provider === "vercel") {

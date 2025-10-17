@@ -10,3 +10,22 @@ playground
 tmp
 dist
 .turbo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Compiled games and assets
+*.exe
+*.out
+examples/*
+!examples/*.c
+!examples/*.py
+!examples/*.md

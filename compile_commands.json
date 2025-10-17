@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "/Users/kareemdasilva/code/opencode",
+    "command": "gcc -Wall -Wextra -std=c99 -I/opt/homebrew/include -c examples/3d_sailor.c",
+    "file": "examples/3d_sailor.c"
+  }
+]
