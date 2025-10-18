@@ -3,8 +3,19 @@ import { Auth } from "./index"
 import { NamedError } from "../util/error"
 
 export namespace AuthPlayscapeSupabase {
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
-  const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+  const SUPABASE_URL =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "https://hrrxzbownrqsrbqonzbx.supabase.co"
+  const SUPABASE_ANON_KEY =
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhycnh6Ym93bnJxc3JicW9uemJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjE0MzI4NDAsImV4cCI6MjAzNzAwODg0MH0.gzYBIBFV875iYvoc86XIbWISBNi3UMqiFhzMOqozohg"
+
+  function ensureConfig() {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new AuthenticationError({
+        message: "Supabase configuration is missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.",
+      })
+    }
+  }
 
   interface SupabaseAuthResponse {
     access_token: string
@@ -27,27 +38,42 @@ export namespace AuthPlayscapeSupabase {
   }
 
   export async function loginWithOAuth(provider: "google" | "discord") {
-    const redirectUrl = `https://playscape.gg/auth/callback`
+    ensureConfig()
 
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/authorize?provider=${provider}`, {
-      method: "GET",
+    const redirectUrl = `https://playscape.gg/auth/callback`
+    const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(redirectUrl)}`
+
+    // Open browser
+    Bun.spawn(["open", authUrl])
+
+    // Return control to the auth command which will prompt for the token
+    return { needsToken: true }
+  }
+
+  export async function completeOAuthWithToken(accessToken: string, refreshToken: string) {
+    // Get user info
+    const userResponse = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: {
+        Authorization: `Bearer ${accessToken}`,
         apikey: SUPABASE_ANON_KEY,
       },
     })
 
-    if (!response.ok) {
-      throw new AuthenticationError({
-        message: `Failed to initiate ${provider} OAuth flow`,
-      })
+    if (!userResponse.ok) {
+      throw new AuthenticationError({ message: "Invalid access token" })
     }
 
-    const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(redirectUrl)}`
+    const user = await userResponse.json()
 
-    return {
-      url: authUrl,
-      provider,
-    }
+    // Save tokens
+    await Auth.set("playscape-supabase", {
+      type: "oauth",
+      refresh: refreshToken,
+      access: accessToken,
+      expires: Date.now() + 3600 * 1000,
+    })
+
+    return { user }
   }
 
   export async function handleOAuthCallback(code: string) {

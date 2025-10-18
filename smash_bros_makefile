@@ -1,0 +1,62 @@
+# Super Smash Bros Platform Fighter - Makefile
+# Supports PS5 DualSense controllers + Keyboard
+
+CC = gcc
+CFLAGS = -Wall -Wextra -O2 -I/opt/homebrew/Cellar/raylib/5.5/include
+LDFLAGS = -L/opt/homebrew/Cellar/raylib/5.5/lib -lraylib -framework CoreVideo -framework IOKit -framework Cocoa -framework GLUT -framework OpenGL
+TARGET = smash_bros
+SRC = smash_bros.c
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	@echo "🎮 Compiling Smash Bros Platform Fighter..."
+	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
+	@echo "✅ Build complete! Run with: make run"
+
+clean:
+	@echo "🧹 Cleaning build files..."
+	rm -f $(TARGET)
+	@echo "✅ Clean complete!"
+
+run: $(TARGET)
+	@echo "🚀 Launching game..."
+	@echo "🎮 PS5 Controllers: Auto-detected"
+	@echo "⌨️  Keyboard: P1=WASD+Space, P2=Arrows+RCtrl"
+	@echo ""
+	./$(TARGET)
+
+debug: CFLAGS += -g -DDEBUG
+debug: clean $(TARGET)
+	@echo "🐛 Debug build complete!"
+
+install:
+	@echo "📦 Installing dependencies..."
+	@if ! command -v brew &> /dev/null; then \
+		echo "❌ Homebrew not found. Please install: https://brew.sh"; \
+		exit 1; \
+	fi
+	@if ! brew list raylib &> /dev/null; then \
+		echo "Installing raylib..."; \
+		brew install raylib; \
+	else \
+		echo "✅ raylib already installed"; \
+	fi
+
+help:
+	@echo "🎮 Smash Bros Platform Fighter - Build Commands"
+	@echo ""
+	@echo "Usage:"
+	@echo "  make          - Compile the game"
+	@echo "  make run      - Compile and run the game"
+	@echo "  make clean    - Remove compiled files"
+	@echo "  make debug    - Compile with debug symbols"
+	@echo "  make install  - Install raylib dependency (macOS)"
+	@echo "  make help     - Show this help message"
+	@echo ""
+	@echo "Controls:"
+	@echo "  P1: WASD + Space (or PS5 Controller 1)"
+	@echo "  P2: Arrows + RCtrl (or PS5 Controller 2)"
+	@echo ""
+
+.PHONY: all clean run debug install help

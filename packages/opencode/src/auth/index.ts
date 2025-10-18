@@ -214,19 +214,13 @@ export namespace Auth {
         if (prompts.isCancel(authMethod)) throw new UI.CancelledError()
 
         if (authMethod === "google" || authMethod === "discord") {
-          const oauthResult = await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
-          prompts.log.info("Go to: " + oauthResult.url)
-
-          const code = await prompts.text({
-            message: "Paste the authorization code from the callback URL: ",
-            validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-          })
-
-          if (prompts.isCancel(code)) throw new UI.CancelledError()
-
           try {
-            const user = await AuthPlayscapeSupabase.handleOAuthCallback(code)
-            prompts.log.success(`Logged in as ${user.email}`)
+            const spinner = prompts.spinner()
+            spinner.start("Opening browser for authentication...")
+
+            const result = await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
+            spinner.stop("Authentication successful")
+            prompts.log.success(`Logged in as ${result.user.email}`)
             prompts.outro("Done")
             return
           } catch (error: any) {

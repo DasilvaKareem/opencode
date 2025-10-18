@@ -237,19 +237,27 @@ export const AuthLoginCommand = cmd({
           if (prompts.isCancel(authMethod)) throw new UI.CancelledError()
 
           if (authMethod === "google" || authMethod === "discord") {
-            const oauthResult = await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
-            prompts.log.info(`Go to: \x1b]8;;${oauthResult.url}\x1b\\${oauthResult.url}\x1b]8;;\x1b\\`)
-
-            const code = await prompts.text({
-              message: "Paste the authorization code from the callback URL: ",
-              validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-            })
-
-            if (prompts.isCancel(code)) throw new UI.CancelledError()
-
             try {
-              const user = await AuthPlayscapeSupabase.handleOAuthCallback(code)
-              prompts.log.success(`Logged in as ${user.email}`)
+              prompts.log.info("Opening browser for authentication...")
+
+              await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
+
+              prompts.log.info("After authenticating, you'll see an access token on the page.")
+
+              const accessToken = await prompts.text({
+                message: "Paste the access token here:",
+                validate: (x) => (x && x.length > 0 ? undefined : "Required"),
+              })
+              if (prompts.isCancel(accessToken)) throw new UI.CancelledError()
+
+              const refreshToken = await prompts.text({
+                message: "Paste the refresh token here:",
+                validate: (x) => (x && x.length > 0 ? undefined : "Required"),
+              })
+              if (prompts.isCancel(refreshToken)) throw new UI.CancelledError()
+
+              const result = await AuthPlayscapeSupabase.completeOAuthWithToken(accessToken, refreshToken)
+              prompts.log.success(`Logged in as ${result.user.email}`)
               prompts.outro("Done")
               return
             } catch (error: any) {

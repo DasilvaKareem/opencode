@@ -29,3 +29,7 @@ examples/*
 !examples/*.c
 !examples/*.py
 !examples/*.md
+
+# Game executables
+smash_bros
+controller_test

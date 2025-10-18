@@ -66,6 +66,21 @@ const cli = yargs(hideBin(process.argv))
       version: Installation.VERSION,
       args: process.argv.slice(2),
     })
+
+    // Check authentication for all commands except auth and login
+    const command = opts._[0] as string
+    const authExemptCommands = ["auth", "login", "help", "version"]
+
+    if (!authExemptCommands.includes(command)) {
+      const { Auth } = await import("./auth")
+      const hasAuth = await Auth.ensureCredentials("opencode")
+
+      if (!hasAuth) {
+        UI.error("You must authenticate with Playscape before using this command")
+        UI.println("\nRun: " + UI.Style.TEXT_INFO_BOLD + "opencode auth login" + UI.Style.TEXT_NORMAL)
+        process.exit(1)
+      }
+    }
   })
   .usage("\n" + UI.logo())
   .command(McpCommand)
