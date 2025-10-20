@@ -119,6 +119,8 @@ export namespace AuthPlayscapeSupabase {
   }
 
   export async function loginWithEmail(email: string, password: string) {
+    console.log("Attempting login with:", { url: SUPABASE_URL, email })
+
     const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: "POST",
       headers: {
@@ -131,14 +133,34 @@ export namespace AuthPlayscapeSupabase {
       }),
     })
 
+    console.log("Response status:", response.status, response.statusText)
+
     if (!response.ok) {
-      const error: SupabaseErrorResponse = await response.json()
+      const errorText = await response.text()
+      console.log("Error response:", errorText)
+
+      let error: SupabaseErrorResponse
+      try {
+        error = JSON.parse(errorText)
+      } catch {
+        error = { error: errorText }
+      }
+
       throw new AuthenticationError({
-        message: error.error_description || error.error || "Authentication failed",
+        message: `Login failed (${response.status}): ${error.error_description || error.error || "Authentication failed"}`,
       })
     }
 
-    const data: SupabaseAuthResponse = await response.json()
+    const data: any = await response.json()
+
+    // Debug: log the actual response structure
+    console.log("Login response:", JSON.stringify(data, null, 2))
+
+    if (!data.user || !data.user.email) {
+      throw new AuthenticationError({
+        message: `Invalid response from authentication server. (Response: ${JSON.stringify(data)})`,
+      })
+    }
 
     await Auth.set("playscape-supabase", {
       type: "oauth",
@@ -170,7 +192,16 @@ export namespace AuthPlayscapeSupabase {
       })
     }
 
-    const data: SupabaseAuthResponse = await response.json()
+    const data: any = await response.json()
+
+    // Debug: log the actual response structure
+    console.log("Signup response:", JSON.stringify(data, null, 2))
+
+    if (!data.user || !data.user.email) {
+      throw new AuthenticationError({
+        message: `Sign up requires email confirmation. Please check your email. (Response: ${JSON.stringify(data)})`,
+      })
+    }
 
     await Auth.set("playscape-supabase", {
       type: "oauth",

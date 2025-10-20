@@ -73,7 +73,7 @@ const cli = yargs(hideBin(process.argv))
 
     if (!authExemptCommands.includes(command)) {
       const { Auth } = await import("./auth")
-      const hasAuth = await Auth.ensureCredentials("opencode")
+      const hasAuth = await Auth.ensureCredentials("playscape-supabase")
 
       if (!hasAuth) {
         UI.error("You must authenticate with Playscape before using this command")
