@@ -215,13 +215,14 @@ export namespace Auth {
 
         if (authMethod === "google" || authMethod === "discord") {
           try {
-            const spinner = prompts.spinner()
-            spinner.start("Opening browser for authentication...")
+            prompts.log.info("Opening browser for authentication...")
+            prompts.log.info("Please complete the authentication in your browser.")
+            prompts.log.info("After authentication, you'll be redirected to the Playscape website.")
+            prompts.log.info("The CLI will automatically detect your login.")
 
-            const result = await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
-            spinner.stop("Authentication successful")
-            prompts.log.success(`Logged in as ${result.user.email}`)
-            prompts.outro("Done")
+            await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
+
+            prompts.outro("Browser opened. Complete authentication in your browser.")
             return
           } catch (error: any) {
             prompts.log.error(error.message || "OAuth authentication failed")

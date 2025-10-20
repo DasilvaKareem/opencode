@@ -11,6 +11,7 @@ Your Smash Bros game now has **aerial attacks** that can only be performed while
 - **Keyboard P2**: Right Shift **[AIR ONLY]**
 - **Effect**: Launches opponent straight UP vertically
 - **Visual**: Yellow hitbox above your character
+- **Best For**: Juggling opponents, KO off top of screen
 
 ### 🔽 Down Air (Down Aerial / Meteor Smash)
 
