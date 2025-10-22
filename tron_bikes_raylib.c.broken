@@ -1,0 +1,811 @@
+#include "raylib.h"
+#include "raymath.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+#define GRID_SIZE 100
+#define CELL_SIZE 2
+#define MAX_TRAIL_SEGMENTS 5000
+#define MAX_OCCUPIED_CELLS 50000
+#define INITIAL_SPEED 0.25f
+#define BOOST_MULTIPLIER 1.8f
+#define TURN_COOLDOWN 5
+
+// Direction enum
+typedef enum {
+    DIR_NORTH = 0,
+    DIR_SOUTH,
+    DIR_EAST,
+    DIR_WEST
+} Direction;
+
+// Trail segment
+typedef struct {
+    Vector3 start;
+    Vector3 end;
+    Color color;
+    bool active;
+} TrailSegment;
+
+// Occupied cell for collision
+typedef struct {
+    int x;
+    int z;
+    bool occupied;
+} OccupiedCell;
+
+// Bike structure
+typedef struct {
+    Vector3 position;
+    Direction direction;
+    float speed;
+    bool alive;
+    int turnCooldown;
+    Color color;
+    bool isPlayer;
+    bool boosting;
+    
+    TrailSegment trail[MAX_TRAIL_SEGMENTS];
+    int trailCount;
+    Vector3 currentTrailStart;
+    
+    OccupiedCell occupiedCells[MAX_OCCUPIED_CELLS];
+    int occupiedCount;
+} Bike;
+
+// Game mode enum
+typedef enum {
+    MENU,
+    SINGLEPLAYER,
+    SPLITSCREEN
+} GameMode;
+
+// Game state
+typedef struct {
+    Bike bikes[4];
+    int bikeCount;
+    bool gameOver;
+    bool playerWon;
+    Music bgm;
+    Sound sndTurn;
+    Sound sndBoost;
+    Sound sndExplosion;
+    Sound sndMenuSelect;
+    GameMode mode;
+    int menuSelection;
+} GameState;
+
+// Function prototypes
+void InitBike(Bike* bike, float x, float z, Color color, bool isPlayer, Direction dir);
+void UpdateBike(Bike* bike);
+void DrawBike(Bike* bike);
+void DrawTrail(Bike* bike);
+void TurnBike(Bike* bike, Direction newDir, GameState* state);
+void BoostBike(Bike* bike, bool active, GameState* state);
+void AddOccupiedCell(Bike* bike, int cellX, int cellZ);
+bool CheckCollision(Bike* bike, GameState* state);
+Vector3 GetDirectionVector(Direction dir);
+Direction GetOppositeDirection(Direction dir);
+void UpdateAI(Bike* bike, GameState* state);
+void InitGame(GameState* state, GameMode mode);
+void DrawMenu(GameState* state, int screenWidth, int screenHeight);
+void DrawTronGrid(void);
+void DrawWalls(void);
+
+// Get direction vector from enum
+Vector3 GetDirectionVector(Direction dir) {
+    switch(dir) {
+        case DIR_NORTH: return (Vector3){0, 0, -1};
+        case DIR_SOUTH: return (Vector3){0, 0, 1};
+        case DIR_EAST: return (Vector3){1, 0, 0};
+        case DIR_WEST: return (Vector3){-1, 0, 0};
+        default: return (Vector3){0, 0, 0};
+    }
+}
+
+// Get opposite direction
+Direction GetOppositeDirection(Direction dir) {
+    switch(dir) {
+        case DIR_NORTH: return DIR_SOUTH;
+        case DIR_SOUTH: return DIR_NORTH;
+        case DIR_EAST: return DIR_WEST;
+        case DIR_WEST: return DIR_EAST;
+        default: return dir;
+    }
+}
+
+// Initialize bike
+void InitBike(Bike* bike, float x, float z, Color color, bool isPlayer, Direction dir) {
+    bike->position = (Vector3){x, 0, z};
+    bike->direction = dir;
+    bike->speed = INITIAL_SPEED;
+    bike->alive = true;
+    bike->turnCooldown = 0;
+    bike->color = color;
+    bike->isPlayer = isPlayer;
+    bike->boosting = false;
+    bike->trailCount = 0;
+    bike->currentTrailStart = bike->position;
+    bike->occupiedCount = 0;
+    
+    // Add initial occupied cell
+    AddOccupiedCell(bike, (int)(x / CELL_SIZE), (int)(z / CELL_SIZE));
+}
+
+// Add occupied cell
+void AddOccupiedCell(Bike* bike, int cellX, int cellZ) {
+    if (bike->occupiedCount < MAX_OCCUPIED_CELLS) {
+        bike->occupiedCells[bike->occupiedCount].x = cellX;
+        bike->occupiedCells[bike->occupiedCount].z = cellZ;
+        bike->occupiedCells[bike->occupiedCount].occupied = true;
+        bike->occupiedCount++;
+    }
+}
+
+// Turn bike
+void TurnBike(Bike* bike, Direction newDir, GameState* state) {
+    if (bike->turnCooldown > 0) return;
+    if (newDir == GetOppositeDirection(bike->direction)) return; // No 180 turns
+    if (newDir == bike->direction) return; // Already going this way
+    
+    // Create trail segment for the line we just drew
+    Vector3 start = bike->currentTrailStart;
+    Vector3 end = bike->position;
+    float distance = Vector3Distance(start, end);
+    
+    if (distance > 0.1f && bike->trailCount < MAX_TRAIL_SEGMENTS) {
+        bike->trail[bike->trailCount].start = start;
+        bike->trail[bike->trailCount].end = end;
+        bike->trail[bike->trailCount].color = bike->color;
+        bike->trail[bike->trailCount].active = true;
+        bike->trailCount++;
+    }
+    
+    bike->direction = newDir;
+    bike->currentTrailStart = bike->position;
+    bike->turnCooldown = TURN_COOLDOWN;
+    
+    // Play turn sound if player bike
+    if (bike->isPlayer && IsSoundValid(state->sndTurn)) {
+        PlaySound(state->sndTurn);
+    }
+}
+
+// Boost bike
+void BoostBike(Bike* bike, bool active, GameState* state) {
+    bool wasBoost = bike->boosting;
+    bike->boosting = active;
+    bike->speed = active ? INITIAL_SPEED * BOOST_MULTIPLIER : INITIAL_SPEED;
+    
+    // Play boost sound when starting boost (not stopping)
+    if (bike->isPlayer && active && !wasBoost && IsSoundValid(state->sndBoost)) {
+        PlaySound(state->sndBoost);
+    }
+}
+
+// Update bike
+void UpdateBike(Bike* bike) {
+    if (!bike->alive) return;
+    
+    if (bike->turnCooldown > 0) bike->turnCooldown--;
+    
+    Vector3 dirVec = GetDirectionVector(bike->direction);
+    dirVec = Vector3Scale(dirVec, bike->speed);
+    bike->position = Vector3Add(bike->position, dirVec);
+    
+    // Add occupied cell every frame
+    int cellX = (int)(bike->position.x / CELL_SIZE);
+    int cellZ = (int)(bike->position.z / CELL_SIZE);
+    AddOccupiedCell(bike, cellX, cellZ);
+    
+    // Check bounds - with larger buffer so walls are visible when you die
+    float halfSize = (GRID_SIZE * CELL_SIZE) / 2.0f - 5.0f; // 5 unit buffer from edge
+    if (fabs(bike->position.x) > halfSize || fabs(bike->position.z) > halfSize) {
+        TraceLog(LOG_INFO, "WALL COLLISION: Bike hit boundary at (%.1f, %.1f)", bike->position.x, bike->position.z);
+        bike->alive = false;
+    }
+}
+
+// Check collision
+bool CheckCollision(Bike* bike, GameState* state) {
+    if (!bike->alive) return false;
+    
+    int cellX = (int)(bike->position.x / CELL_SIZE);
+    int cellZ = (int)(bike->position.z / CELL_SIZE);
+    
+    // Check against all other bikes' occupied cells
+    for (int i = 0; i < state->bikeCount; i++) {
+        Bike* other = &state->bikes[i];
+        if (other == bike) continue;
+        
+        // Skip the last 50 cells to give breathing room (about 2 seconds of travel)
+        int startCheck = (other->occupiedCount > 50) ? 50 : 0;
+        
+        for (int j = startCheck; j < other->occupiedCount; j++) {
+            if (other->occupiedCells[j].occupied &&
+                other->occupiedCells[j].x == cellX &&
+                other->occupiedCells[j].z == cellZ) {
+                TraceLog(LOG_INFO, "COLLISION: Bike hit trail at cell (%d, %d)", cellX, cellZ);
+                bike->alive = false;
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+// Update AI
+void UpdateAI(Bike* bike, GameState* state) {
+    if (!bike->alive) return;
+    
+    static int thinkTimer = 0;
+    static int thinkInterval = 40;
+    
+    thinkTimer++;
+    if (thinkTimer < thinkInterval) return;
+    thinkTimer = 0;
+    
+    // Random decision making with wall avoidance
+    Direction directions[] = {DIR_NORTH, DIR_SOUTH, DIR_EAST, DIR_WEST};
+    Direction validDirs[4];
+    int validCount = 0;
+    
+    float halfSize = (GRID_SIZE * CELL_SIZE) / 2.0f;
+    
+    for (int i = 0; i < 4; i++) {
+        Direction dir = directions[i];
+        if (dir == GetOppositeDirection(bike->direction)) continue;
+        
+        Vector3 testVec = GetDirectionVector(dir);
+        testVec = Vector3Scale(testVec, 10.0f);
+        Vector3 testPos = Vector3Add(bike->position, testVec);
+        
+        if (fabs(testPos.x) < halfSize && fabs(testPos.z) < halfSize) {
+            validDirs[validCount++] = dir;
+        }
+    }
+    
+    if (validCount > 0) {
+        // 30% chance to continue straight
+        if (GetRandomValue(0, 100) < 30) return;
+        
+        Direction newDir = validDirs[GetRandomValue(0, validCount - 1)];
+        TurnBike(bike, newDir);
+    }
+}
+
+// Draw bike
+void DrawBike(Bike* bike) {
+    if (!bike->alive) return;
+    
+    // Main body
+    Vector3 bodyPos = bike->position;
+    bodyPos.y = 1.0f;
+    
+    Color bodyColor = bike->color;
+    if (!bike->alive) {
+        bodyColor.a = 80;
+    }
+    
+    DrawCube(bodyPos, 2.0f, 1.5f, 4.0f, bodyColor);
+    DrawCubeWires(bodyPos, 2.0f, 1.5f, 4.0f, WHITE);
+    
+    // Front wedge
+    Vector3 dirVec = GetDirectionVector(bike->direction);
+    Vector3 wedgePos = Vector3Add(bodyPos, Vector3Scale(dirVec, 2.5f));
+    wedgePos.y = 1.0f;
+    
+    DrawCube(wedgePos, 1.5f, 1.0f, 1.5f, bodyColor);
+    
+    // Light glow
+    if (bike->boosting) {
+        DrawSphere(bodyPos, 3.0f, Fade(bike->color, 0.2f));
+    } else {
+        DrawSphere(bodyPos, 2.0f, Fade(bike->color, 0.15f));
+    }
+}
+
+// Draw trail - continuous stream
+void DrawTrail(Bike* bike) {
+    Color trailColor = bike->color;
+    if (!bike->alive) {
+        trailColor.a = 80;
+    }
+    
+    // Draw all completed segments
+    for (int i = 0; i < bike->trailCount; i++) {
+        if (!bike->trail[i].active) continue;
+        
+        Vector3 start = bike->trail[i].start;
+        Vector3 end = bike->trail[i].end;
+        start.y = 0;
+        end.y = 0;
+        
+        float distance = Vector3Distance(start, end);
+        if (distance < 0.01f) continue;
+        
+        Vector3 midpoint = Vector3Scale(Vector3Add(start, end), 0.5f);
+        Vector3 direction = Vector3Subtract(end, start);
+        
+        // Draw vertical light wall
+        Vector3 wallPos = midpoint;
+        wallPos.y = 3.0f; // Center at height 3
+        
+        // Determine if this is X-axis or Z-axis aligned
+        bool isXAligned = fabs(direction.x) > fabs(direction.z);
+        
+        if (isXAligned) {
+            // Trail goes along X axis, wall is perpendicular (thin in Z)
+            DrawCube(wallPos, distance, 6.0f, 0.5f, trailColor);
+            DrawCube(wallPos, distance + 0.5f, 6.5f, 1.0f, Fade(trailColor, 0.3f));
+            DrawCube(wallPos, distance + 1.0f, 7.0f, 1.5f, Fade(trailColor, 0.15f));
+        } else {
+            // Trail goes along Z axis, wall is perpendicular (thin in X)
+            DrawCube(wallPos, 0.5f, 6.0f, distance, trailColor);
+            DrawCube(wallPos, 1.0f, 6.5f, distance + 0.5f, Fade(trailColor, 0.3f));
+            DrawCube(wallPos, 1.5f, 7.0f, distance + 1.0f, Fade(trailColor, 0.15f));
+        }
+    }
+    
+    // Draw current active segment (from last turn to current position)
+    if (bike->alive) {
+        Vector3 start = bike->currentTrailStart;
+        Vector3 end = bike->position;
+        start.y = 0;
+        end.y = 0;
+        
+        float distance = Vector3Distance(start, end);
+        if (distance > 0.01f) {
+            Vector3 midpoint = Vector3Scale(Vector3Add(start, end), 0.5f);
+            
+            // Draw vertical light wall for current segment
+            Vector3 wallPos = midpoint;
+            wallPos.y = 3.0f;
+            
+            Vector3 dir = Vector3Subtract(end, start);
+            bool isXAligned = fabs(dir.x) > fabs(dir.z);
+            
+            if (isXAligned) {
+                DrawCube(wallPos, distance, 6.0f, 0.5f, trailColor);
+                DrawCube(wallPos, distance + 0.5f, 6.5f, 1.0f, Fade(trailColor, 0.3f));
+                DrawCube(wallPos, distance + 1.0f, 7.0f, 1.5f, Fade(trailColor, 0.15f));
+            } else {
+                DrawCube(wallPos, 0.5f, 6.0f, distance, trailColor);
+                DrawCube(wallPos, 1.0f, 6.5f, distance + 0.5f, Fade(trailColor, 0.3f));
+                DrawCube(wallPos, 1.5f, 7.0f, distance + 1.0f, Fade(trailColor, 0.15f));
+            }
+        }
+    }
+}
+
+// Draw grid
+void DrawTronGrid(void) {
+    float halfSize = (GRID_SIZE * CELL_SIZE) / 2.0f;
+    int gridLines = GRID_SIZE / 2;
+    float spacing = (GRID_SIZE * CELL_SIZE) / gridLines;
+    
+    Color gridColor = (Color){0, 136, 255, 100};
+    
+    for (int i = 0; i <= gridLines; i++) {
+        float pos = -halfSize + (i * spacing);
+        
+        // Lines along X axis
+        DrawLine3D((Vector3){-halfSize, 0, pos}, (Vector3){halfSize, 0, pos}, gridColor);
+        
+        // Lines along Z axis
+        DrawLine3D((Vector3){pos, 0, -halfSize}, (Vector3){pos, 0, halfSize}, gridColor);
+    }
+    
+    // Draw floor plane
+    DrawPlane((Vector3){0, -0.1f, 0}, (Vector2){GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE}, 
+              (Color){0, 26, 51, 150});
+}
+
+// Draw walls
+void DrawWalls(void) {
+    float halfSize = (GRID_SIZE * CELL_SIZE) / 2.0f;
+    float wallHeight = 8.0f;
+    Color wallColor = (Color){0, 255, 255, 150};
+    
+    // North wall
+    DrawCubeV((Vector3){0, wallHeight/2, -halfSize}, 
+              (Vector3){GRID_SIZE * CELL_SIZE + 2, wallHeight, 2}, wallColor);
+    
+    // South wall
+    DrawCubeV((Vector3){0, wallHeight/2, halfSize}, 
+              (Vector3){GRID_SIZE * CELL_SIZE + 2, wallHeight, 2}, wallColor);
+    
+    // West wall
+    DrawCubeV((Vector3){-halfSize, wallHeight/2, 0}, 
+              (Vector3){2, wallHeight, GRID_SIZE * CELL_SIZE}, wallColor);
+    
+    // East wall
+    DrawCubeV((Vector3){halfSize, wallHeight/2, 0}, 
+              (Vector3){2, wallHeight, GRID_SIZE * CELL_SIZE}, wallColor);
+}
+
+// Draw menu screen
+void DrawMenu(GameState* state, int screenWidth, int screenHeight) {
+    const char* title = "TRON LIGHT BIKES";
+    int titleWidth = MeasureText(title, 60);
+    DrawText(title, screenWidth/2 - titleWidth/2, 100, 60, SKYBLUE);
+    
+    const char* option1 = "1. SINGLE PLAYER (vs AI)";
+    const char* option2 = "2. SPLIT SCREEN (2 Players)";
+    
+    Color color1 = (state->menuSelection == 0) ? YELLOW : WHITE;
+    Color color2 = (state->menuSelection == 1) ? YELLOW : WHITE;
+    
+    int opt1Width = MeasureText(option1, 30);
+    int opt2Width = MeasureText(option2, 30);
+    
+    DrawText(option1, screenWidth/2 - opt1Width/2, 300, 30, color1);
+    DrawText(option2, screenWidth/2 - opt2Width/2, 350, 30, color2);
+    
+    DrawText("Use UP/DOWN or Left Stick to select", screenWidth/2 - 200, 450, 20, GRAY);
+    DrawText("Press ENTER or X to start", screenWidth/2 - 150, 480, 20, GRAY);
+}
+
+// Initialize game
+void InitGame(GameState* state, GameMode mode) {
+    state->mode = mode;
+    state->gameOver = false;
+    state->playerWon = false;
+    
+    // Clear all bikes first
+    for (int i = 0; i < 4; i++) {
+        state->bikes[i].trailCount = 0;
+        state->bikes[i].occupiedCount = 0;
+    }
+    
+    if (mode == SPLITSCREEN) {
+        state->bikeCount = 2;
+        // Player 1 (cyan)
+        InitBike(&state->bikes[0], -40, 0, SKYBLUE, true, DIR_EAST, &state);
+        // Player 2 (magenta)
+        InitBike(&state->bikes[1], 40, 0, MAGENTA, true, DIR_WEST, &state);
+    } else {
+        state->bikeCount = 4;
+        // Player (cyan)
+        InitBike(&state->bikes[0], -30, -30, SKYBLUE, true, DIR_SOUTH, &state);
+        // NPC 1 (red)
+        InitBike(&state->bikes[1], 30, 30, RED, false, DIR_NORTH, &state);
+        // NPC 2 (green)
+        InitBike(&state->bikes[2], -30, 30, GREEN, false, DIR_EAST, &state);
+        // NPC 3 (yellow)
+        InitBike(&state->bikes[3], 30, -30, YELLOW, false, DIR_WEST, &state);
+    }
+}
+
+int main(void) {
+    const int screenWidth = 1280;
+    const int screenHeight = 800;
+    
+    InitWindow(screenWidth, screenHeight, "Tron Light Bikes - Raylib");
+    InitAudioDevice();
+    
+    SetTargetFPS(60);
+    
+    // Camera setup
+    Camera3D camera = {0};
+    camera.position = (Vector3){0.0f, 25.0f, 30.0f};
+    camera.target = (Vector3){0.0f, 0.0f, 0.0f};
+    camera.up = (Vector3){0.0f, 1.0f, 0.0f};
+    camera.fovy = 75.0f;
+    camera.projection = CAMERA_PERSPECTIVE;
+    
+    // Load music and sounds
+    GameState state = {0};
+    if (FileExists("tron_bgm.mp3")) {
+        state.bgm = LoadMusicStream("tron_bgm.mp3");
+        PlayMusicStream(state.bgm);
+        SetMusicVolume(state.bgm, 0.6f);
+    }
+    
+    // Load sound effects
+    if (FileExists("bike_turn.mp3")) {
+        state.sndTurn = LoadSound("bike_turn.mp3");
+        SetSoundVolume(state.sndTurn, 0.5f);
+    }
+    if (FileExists("bike_boost.mp3")) {
+        state.sndBoost = LoadSound("bike_boost.mp3");
+        SetSoundVolume(state.sndBoost, 0.7f);
+    }
+    if (FileExists("bike_explosion.mp3")) {
+        state.sndExplosion = LoadSound("bike_explosion.mp3");
+        SetSoundVolume(state.sndExplosion, 0.8f);
+    }
+    if (FileExists("menu_select.mp3")) {
+        state.sndMenuSelect = LoadSound("menu_select.mp3");
+        SetSoundVolume(state.sndMenuSelect, 0.6f);
+    }
+    
+    // Start in menu
+    state.mode = MENU;
+    state.menuSelection = 0;
+    
+    // PS5 controller support
+    int gamepadId = -1;
+    
+    // Split screen render textures
+    RenderTexture screenPlayer1 = LoadRenderTexture(screenWidth/2, screenHeight);
+    RenderTexture screenPlayer2 = LoadRenderTexture(screenWidth/2, screenHeight);
+    Rectangle splitScreenRect = { 0.0f, 0.0f, (float)screenPlayer1.texture.width, (float)-screenPlayer1.texture.height };
+    
+    // Main game loop
+    while (!WindowShouldClose()) {
+        // Update music
+        if (IsMusicValid(state.bgm)) {
+            UpdateMusicStream(state.bgm);
+        }
+        
+        // Check for connected gamepad
+        if (gamepadId == -1) {
+            for (int i = 0; i < 4; i++) {
+                if (IsGamepadAvailable(i)) {
+                    gamepadId = i;
+                    TraceLog(LOG_INFO, "Gamepad detected: %s", GetGamepadName(i));
+                    break;
+                }
+            }
+        }
+        
+        // Menu controls
+        if (state.mode == MENU) {
+            if (IsKeyPressed(KEY_UP) || (gamepadId >= 0 && IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_LEFT_FACE_UP))) {
+                state.menuSelection = 0;
+            }
+            if (IsKeyPressed(KEY_DOWN) || (gamepadId >= 0 && IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_LEFT_FACE_DOWN))) {
+                state.menuSelection = 1;
+            }
+            if (IsKeyPressed(KEY_ENTER) || (gamepadId >= 0 && IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_RIGHT_FACE_DOWN))) {
+                GameMode selectedMode = (state.menuSelection == 0) ? SINGLEPLAYER : SPLITSCREEN;
+                InitGame(&state, selectedMode);
+            }
+        }
+        
+        // Restart game
+        if (IsKeyPressed(KEY_R) || 
+            (gamepadId >= 0 && IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_RIGHT_FACE_UP))) {
+            if (state.mode == MENU) {
+                // Already in menu
+            } else {
+                InitGame(&state, state.mode);
+            }
+        }
+        
+        // Back to menu
+        if (IsKeyPressed(KEY_ESCAPE) || (gamepadId >= 0 && IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_MIDDLE_LEFT))) {
+            state.mode = MENU;
+        }
+        
+        if (!state.gameOver) {
+            // Player input
+            Bike* player = &state.bikes[0];
+            if (player->alive) {
+                // Keyboard input - RELATIVE TURNING (left/right from current direction)
+                if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_A)) {
+                    // Turn left relative to current direction
+                    switch(player->direction) {
+                        case DIR_NORTH: TurnBike(player, DIR_WEST, &state); break;
+                        case DIR_SOUTH: TurnBike(player, DIR_EAST, &state); break;
+                        case DIR_EAST: TurnBike(player, DIR_NORTH, &state); break;
+                        case DIR_WEST: TurnBike(player, DIR_SOUTH, &state); break;
+                    }
+                }
+                if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) {
+                    // Turn right relative to current direction
+                    switch(player->direction) {
+                        case DIR_NORTH: TurnBike(player, DIR_EAST, &state); break;
+                        case DIR_SOUTH: TurnBike(player, DIR_WEST, &state); break;
+                        case DIR_EAST: TurnBike(player, DIR_SOUTH, &state); break;
+                        case DIR_WEST: TurnBike(player, DIR_NORTH, &state); break;
+                    }
+                }
+                // Keep absolute controls for UP/DOWN if you want
+                if (IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_W)) {
+                    TurnBike(player, DIR_NORTH, &state);
+                }
+                if (IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_S)) {
+                    TurnBike(player, DIR_SOUTH, &state);
+                }
+                
+                // PS5 Controller input - RELATIVE TURNING
+                if (gamepadId >= 0) {
+                    // D-Pad Left/Right for relative turning
+                    if (IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) {
+                        // Turn left
+                        switch(player->direction) {
+                            case DIR_NORTH: TurnBike(player, DIR_WEST, &state); break;
+                            case DIR_SOUTH: TurnBike(player, DIR_EAST, &state); break;
+                            case DIR_EAST: TurnBike(player, DIR_NORTH, &state); break;
+                            case DIR_WEST: TurnBike(player, DIR_SOUTH, &state); break;
+                        }
+                    }
+                    if (IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) {
+                        // Turn right
+                        switch(player->direction) {
+                            case DIR_NORTH: TurnBike(player, DIR_EAST, &state); break;
+                            case DIR_SOUTH: TurnBike(player, DIR_WEST, &state); break;
+                            case DIR_EAST: TurnBike(player, DIR_SOUTH, &state); break;
+                            case DIR_WEST: TurnBike(player, DIR_NORTH, &state); break;
+                        }
+                    }
+                    // D-Pad Up/Down for absolute
+                    if (IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_LEFT_FACE_UP)) {
+                        TurnBike(player, DIR_NORTH, &state);
+                    }
+                    if (IsGamepadButtonPressed(gamepadId, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) {
+                        TurnBike(player, DIR_SOUTH, &state);
+                    }
+                    
+                    // Left analog stick - RELATIVE TURNING
+                    float axisX = GetGamepadAxisMovement(gamepadId, GAMEPAD_AXIS_LEFT_X);
+                    float axisY = GetGamepadAxisMovement(gamepadId, GAMEPAD_AXIS_LEFT_Y);
+                    
+                    static bool analogCooldown = false;
+                    static int cooldownTimer = 0;
+                    
+                    if (cooldownTimer > 0) {
+                        cooldownTimer--;
+                    } else {
+                        analogCooldown = false;
+                    }
+                    
+                    if (!analogCooldown) {
+                        if (fabs(axisX) > 0.5f) {
+                            if (axisX < -0.5f) {
+                                // Left stick left = turn left
+                                switch(player->direction) {
+                                    case DIR_NORTH: TurnBike(player, DIR_WEST, &state); break;
+                                    case DIR_SOUTH: TurnBike(player, DIR_EAST, &state); break;
+                                    case DIR_EAST: TurnBike(player, DIR_NORTH, &state); break;
+                                    case DIR_WEST: TurnBike(player, DIR_SOUTH, &state); break;
+                                }
+                                analogCooldown = true;
+                                cooldownTimer = 10;
+                            } else if (axisX > 0.5f) {
+                                // Left stick right = turn right
+                                switch(player->direction) {
+                                    case DIR_NORTH: TurnBike(player, DIR_EAST, &state); break;
+                                    case DIR_SOUTH: TurnBike(player, DIR_WEST, &state); break;
+                                    case DIR_EAST: TurnBike(player, DIR_SOUTH, &state); break;
+                                    case DIR_WEST: TurnBike(player, DIR_NORTH, &state); break;
+                                }
+                                analogCooldown = true;
+                                cooldownTimer = 10;
+                            }
+                        }
+                    }
+                }
+                
+                // Boost - Space or R2/RT trigger
+                bool boost = IsKeyDown(KEY_SPACE);
+                if (gamepadId >= 0) {
+                    float rightTrigger = GetGamepadAxisMovement(gamepadId, GAMEPAD_AXIS_RIGHT_TRIGGER);
+                    boost = boost || (rightTrigger > 0.1f) || 
+                            IsGamepadButtonDown(gamepadId, GAMEPAD_BUTTON_RIGHT_TRIGGER_2);
+                }
+                BoostBike(player, boost);
+            }
+            
+            // Update AI
+            for (int i = 1; i < state.bikeCount; i++) {
+                UpdateAI(&state.bikes[i], &state);
+            }
+            
+            // Update all bikes
+            for (int i = 0; i < state.bikeCount; i++) {
+                UpdateBike(&state.bikes[i]);
+                CheckCollision(&state.bikes[i], &state);
+            }
+            
+            // Update camera to follow player
+            if (player->alive) {
+                Vector3 dirVec = GetDirectionVector(player->direction);
+                Vector3 targetPos = player->position;
+                targetPos = Vector3Subtract(targetPos, Vector3Scale(dirVec, 5.0f));
+                
+                camera.target.x += (targetPos.x - camera.target.x) * 0.1f;
+                camera.target.z += (targetPos.z - camera.target.z) * 0.1f;
+                
+                Vector3 camPos = Vector3Subtract(player->position, Vector3Scale(dirVec, 20.0f));
+                camPos.y = 15.0f;
+                
+                camera.position.x += (camPos.x - camera.position.x) * 0.1f;
+                camera.position.z += (camPos.z - camera.position.z) * 0.1f;
+                camera.position.y += (camPos.y - camera.position.y) * 0.1f;
+            }
+            
+            // Check game over
+            int aliveCount = 0;
+            for (int i = 0; i < state.bikeCount; i++) {
+                if (state.bikes[i].alive) aliveCount++;
+            }
+            
+            if (aliveCount <= 1) {
+                state.gameOver = true;
+                state.playerWon = player->alive;
+            }
+        }
+        
+        // Drawing
+        BeginDrawing();
+        ClearBackground(BLACK);
+        
+        if (state.mode == MENU) {
+            // Draw menu
+            DrawMenu(&state, screenWidth, screenHeight);
+        } else {
+            // Draw game
+            BeginMode3D(camera);
+            
+            // Draw grid and walls
+            DrawTronGrid();
+            DrawWalls();
+            
+            // Draw all bikes and trails
+            for (int i = 0; i < state.bikeCount; i++) {
+                DrawTrail(&state.bikes[i]);
+                DrawBike(&state.bikes[i]);
+            }
+            
+            EndMode3D();
+        
+        // HUD
+        int aliveCount = 0;
+        for (int i = 0; i < state.bikeCount; i++) {
+            if (state.bikes[i].alive) aliveCount++;
+        }
+        
+        DrawText(TextFormat("Players Alive: %d", aliveCount), 20, 20, 20, SKYBLUE);
+        DrawText(TextFormat("Speed: %.1fx", state.bikes[0].boosting ? BOOST_MULTIPLIER : 1.0f), 
+                 20, 50, 20, SKYBLUE);
+        
+        // Debug info
+        Bike* player = &state.bikes[0];
+        DrawText(TextFormat("Pos: (%.1f, %.1f)", player->position.x, player->position.z), 20, 80, 16, YELLOW);
+        DrawText(TextFormat("Trail Count: %d", player->trailCount), 20, 100, 16, YELLOW);
+        DrawText(TextFormat("Occupied: %d cells", player->occupiedCount), 20, 120, 16, YELLOW);
+        
+        // Death criteria
+        DrawText("DIE IF: Hit wall | Hit any trail | Hit other bike", 20, 150, 14, ORANGE);
+        
+        // Controller status
+        if (gamepadId >= 0) {
+            DrawText(TextFormat("Controller: %s", GetGamepadName(gamepadId)), 20, 180, 16, GREEN);
+        } else {
+            DrawText("No Controller Connected", 20, 180, 16, GRAY);
+        }
+        
+        // Instructions
+        if (gamepadId >= 0) {
+            DrawText("D-Pad/Left Stick: Turn | R2: Boost | Triangle: Restart", 
+                     screenWidth/2 - 280, screenHeight - 30, 16, SKYBLUE);
+        } else {
+            DrawText("Arrow Keys/WASD: Turn | Space: Boost | R: Restart", 
+                     screenWidth/2 - 250, screenHeight - 30, 16, SKYBLUE);
+        }
+        
+        // Game over
+        if (state.gameOver) {
+            const char* text = state.playerWon ? "YOU WIN!" : "GAME OVER";
+            Color textColor = state.playerWon ? SKYBLUE : RED;
+            int textWidth = MeasureText(text, 60);
+            DrawText(text, screenWidth/2 - textWidth/2, screenHeight/2 - 30, 60, textColor);
+        }
+        
+        EndDrawing();
+    }
+    
+    // Cleanup
+    if (IsMusicValid(state.bgm)) {
+        UnloadMusicStream(state.bgm);
+    }
+    CloseAudioDevice();
+    CloseWindow();
+    
+    return 0;
+}

@@ -40,14 +40,171 @@ export namespace AuthPlayscapeSupabase {
   export async function loginWithOAuth(provider: "google" | "discord") {
     ensureConfig()
 
-    const redirectUrl = `https://playscape.gg/auth/callback`
-    const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(redirectUrl)}`
+    const callbackUrl = "http://localhost:54321/auth/callback"
+    const authUrl = `${SUPABASE_URL}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(callbackUrl)}`
+
+    console.log(`\n🔐 ${provider.charAt(0).toUpperCase() + provider.slice(1)} OAuth Login`)
+    console.log("━".repeat(60))
+
+    // Start local callback server first
+    let resolveAuth: ((value: any) => void) | null = null
+    let rejectAuth: ((error: any) => void) | null = null
+
+    const authPromise = new Promise((resolve, reject) => {
+      resolveAuth = resolve
+      rejectAuth = reject
+    })
+
+    const server = Bun.serve({
+      port: 54321,
+      async fetch(req) {
+        const url = new URL(req.url)
+
+        if (url.pathname === "/auth/callback") {
+          const accessToken = url.searchParams.get("access_token")
+          const refreshToken = url.searchParams.get("refresh_token")
+          const error = url.searchParams.get("error_description")
+
+          if (error) {
+            rejectAuth?.(new AuthenticationError({ message: error }))
+            return new Response(`
+              <html>
+                <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+                  <h1>❌ Authentication Failed</h1>
+                  <p>${error}</p>
+                  <p>You can close this window.</p>
+                </body>
+              </html>
+            `, {
+              headers: { "Content-Type": "text/html" },
+            })
+          }
+
+          if (accessToken && refreshToken) {
+            try {
+              await Auth.set("playscape-supabase", {
+                type: "oauth",
+                refresh: refreshToken,
+                access: accessToken,
+                expires: Date.now() + 3600 * 1000,
+              })
+
+              resolveAuth?.({ user: { id: "authenticated" } })
+
+              return new Response(`
+                <html>
+                  <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+                    <h1>✅ Authentication Successful!</h1>
+                    <p>You can close this window and return to your terminal.</p>
+                  </body>
+                </html>
+              `, {
+                headers: { "Content-Type": "text/html" },
+              })
+            } catch (err: any) {
+              rejectAuth?.(err)
+              return new Response(`
+                <html>
+                  <body style="font-family: sans-serif; padding: 40px; text-align: center;">
+                    <h1>❌ Authentication Failed</h1>
+                    <p>${err.message}</p>
+                  </body>
+                </html>
+              `, {
+                headers: { "Content-Type": "text/html" },
+              })
+            }
+          }
+
+          return new Response("Missing tokens", { status: 400 })
+        }
+
+        return new Response("Not found", { status: 404 })
+      },
+    })
+
+    console.log(`\nStarted callback server on http://localhost:54321`)
+    console.log(`Opening browser for authentication...\n`)
 
     // Open browser
     Bun.spawn(["open", authUrl])
 
-    // Return control to the auth command which will prompt for the token
-    return { needsToken: true }
+    // Wait for callback with timeout
+    const timeout = setTimeout(() => {
+      server.stop()
+      rejectAuth?.(new AuthenticationError({ message: "Authentication timed out after 5 minutes" }))
+    }, 300000)
+
+    try {
+      const result = await authPromise
+      clearTimeout(timeout)
+      server.stop()
+      return result
+    } catch (error) {
+      clearTimeout(timeout)
+      server.stop()
+      throw error
+    }
+  }
+
+  export async function loginWithDeviceCode() {
+    const BACKEND_URL = process.env.PLAYSCAPE_BACKEND_URL || "https://playscape.gg"
+
+    // Step 1: Request device code from backend
+    const response = await fetch(`${BACKEND_URL}/api/cli-auth/device-code`, {
+      method: "POST"
+    })
+
+    if (!response.ok) {
+      throw new AuthenticationError({ message: "Failed to generate device code" })
+    }
+
+    const { device_code, verification_url, expires_in } = await response.json()
+
+    // Step 2: Show code to user and open browser
+    console.log("\n🎮 Playscape CLI Authentication")
+    console.log("━".repeat(50))
+    console.log(`\n  Enter this code in your browser:\n`)
+    console.log(`  ${device_code}\n`)
+    console.log(`  Opening ${verification_url}...\n`)
+    console.log("━".repeat(50))
+
+    // Open browser
+    Bun.spawn(["open", verification_url])
+
+    // Step 3: Poll for tokens
+    const pollInterval = 2000 // 2 seconds
+    const maxAttempts = Math.floor((expires_in * 1000) / pollInterval)
+
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise(resolve => setTimeout(resolve, pollInterval))
+
+      const pollResponse = await fetch(`${BACKEND_URL}/api/cli-auth/poll?code=${device_code}`)
+      const pollData = await pollResponse.json()
+
+      if (pollResponse.status === 410) {
+        throw new AuthenticationError({ message: "Device code expired" })
+      }
+
+      if (pollData.status === "complete") {
+        // Got tokens!
+        await Auth.set("playscape-supabase", {
+          type: "oauth",
+          refresh: pollData.refresh_token,
+          access: pollData.access_token,
+          expires: Date.now() + 3600 * 1000,
+        })
+
+        return { user: { id: pollData.user_id } }
+      }
+
+      // Show progress
+      if (i % 5 === 0 && i > 0) {
+        console.log(`  Waiting for authentication... (${Math.floor((maxAttempts - i) * pollInterval / 1000)}s remaining)`)
+      }
+    }
+
+    throw new AuthenticationError({ message: "Authentication timed out" })
   }
 
   export async function completeOAuthWithToken(accessToken: string, refreshToken: string) {
@@ -213,41 +370,60 @@ export namespace AuthPlayscapeSupabase {
     return data.user
   }
 
+  // Cache for in-flight token refresh to prevent race conditions
+  let tokenRefreshPromise: Promise<string> | null = null
+
   export async function access() {
     const info = await Auth.get("playscape-supabase")
     if (!info || info.type !== "oauth") return
 
-    if (info.access && info.expires > Date.now()) {
+    // Return cached token if still valid (with 30 second buffer)
+    if (info.access && info.expires > Date.now() + 30000) {
       return info.access
     }
 
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({
-        refresh_token: info.refresh,
-      }),
-    })
-
-    if (!response.ok) {
-      throw new TokenRefreshError({
-        message: "Failed to refresh access token",
-      })
+    // If refresh is already in progress, wait for it
+    if (tokenRefreshPromise) {
+      return tokenRefreshPromise
     }
 
-    const data: SupabaseAuthResponse = await response.json()
+    // Start refresh and cache the promise
+    tokenRefreshPromise = (async () => {
+      try {
+        const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            refresh_token: info.refresh,
+          }),
+        })
 
-    await Auth.set("playscape-supabase", {
-      type: "oauth",
-      refresh: data.refresh_token,
-      access: data.access_token,
-      expires: Date.now() + data.expires_in * 1000,
-    })
+        if (!response.ok) {
+          throw new TokenRefreshError({
+            message: "Failed to refresh access token",
+          })
+        }
 
-    return data.access_token
+        const data: SupabaseAuthResponse = await response.json()
+
+        await Auth.set("playscape-supabase", {
+          type: "oauth",
+          refresh: data.refresh_token,
+          access: data.access_token,
+          expires: Date.now() + data.expires_in * 1000,
+        })
+
+        return data.access_token
+      } finally {
+        // Clear the promise after completion
+        tokenRefreshPromise = null
+      }
+    })()
+
+    return tokenRefreshPromise
   }
 
   export async function logout() {

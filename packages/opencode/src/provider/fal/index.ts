@@ -78,7 +78,11 @@ export class FalAIProvider {
 
     // Result contains the 3D model URL
     return {
-      url: (result.data as any).geometry_file?.url || (result.data as any).model_url?.url || "",
+      url:
+        (result.data as any).model_mesh?.url ||
+        (result.data as any).geometry_file?.url ||
+        (result.data as any).model_url?.url ||
+        "",
     }
   }
 

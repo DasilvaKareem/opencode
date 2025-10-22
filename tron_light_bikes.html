@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tron Light Bikes</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        overflow: hidden;
+        background: #000;
+        font-family: "Courier New", monospace;
+      }
+      canvas {
+        display: block;
+      }
+      #hud {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        color: #0ff;
+        font-size: 18px;
+        text-shadow: 0 0 10px #0ff;
+        z-index: 100;
+      }
+      #status {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #0ff;
+        font-size: 48px;
+        text-shadow: 0 0 20px #0ff;
+        display: none;
+        z-index: 100;
+      }
+      #instructions {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #0ff;
+        font-size: 14px;
+        text-shadow: 0 0 10px #0ff;
+        text-align: center;
+      }
+      #audioToggle {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(0, 255, 255, 0.1);
+        border: 2px solid #0ff;
+        color: #0ff;
+        padding: 10px 20px;
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        cursor: pointer;
+        text-shadow: 0 0 10px #0ff;
+        transition: all 0.3s;
+      }
+      #audioToggle:hover {
+        background: rgba(0, 255, 255, 0.3);
+        box-shadow: 0 0 20px #0ff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div>Players Alive: <span id="alive">4</span></div>
+      <div>Speed: <span id="speed">1.0</span>x</div>
+    </div>
+    <div id="status"></div>
+    <div id="instructions">Arrow Keys or WASD to Turn | Space to Boost | R to Restart</div>
+    <button id="audioToggle">🔊 Music ON</button>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+      // Game configuration
+      const GRID_SIZE = 100
+      const CELL_SIZE = 2
+      const INITIAL_SPEED = 0.10
+      const BOOST_MULTIPLIER = 2
+      const TURN_COOLDOWN = 10
+
+      // Audio setup
+      const bgm = new Audio("tron_bgm.mp3")
+      bgm.loop = true
+      bgm.volume = 0.6
+
+      // Start audio on first user interaction
+      let audioStarted = false
+      let audioEnabled = true
+      function startAudio() {
+        if (!audioStarted && audioEnabled) {
+          bgm.play().catch((e) => console.log("Audio play failed:", e))
+          audioStarted = true
+        }
+      }
+      document.addEventListener("keydown", startAudio, { once: true })
+      document.addEventListener("click", startAudio, { once: true })
+
+      // Audio toggle button
+      const audioToggle = document.getElementById("audioToggle")
+      audioToggle.addEventListener("click", () => {
+        audioEnabled = !audioEnabled
+        if (audioEnabled) {
+          bgm.play()
+          audioToggle.textContent = "🔊 Music ON"
+        } else {
+          bgm.pause()
+          audioToggle.textContent = "🔇 Music OFF"
+        }
+      })
+
+      // Scene setup
+      const scene = new THREE.Scene()
+      scene.fog = new THREE.Fog(0x000000, 80, 150)
+
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000)
+      camera.position.set(0, 25, 30)
+      camera.lookAt(0, 0, 0)
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true })
+      renderer.setSize(window.innerWidth, window.innerHeight)
+      renderer.setClearColor(0x000000)
+      document.body.appendChild(renderer.domElement)
+
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0x111133, 0.8)
+      scene.add(ambientLight)
+
+      const directionalLight = new THREE.DirectionalLight(0x6699ff, 0.6)
+      directionalLight.position.set(0, 50, 0)
+      scene.add(directionalLight)
+
+      // Tron-style animated background
+      const bgGeometry = new THREE.SphereGeometry(500, 32, 32)
+      const bgMaterial = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        uniforms: {
+          time: { value: 0 },
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform float time;
+          varying vec2 vUv;
+          void main() {
+            float grid = abs(sin(vUv.x * 40.0 + time * 0.5)) * abs(sin(vUv.y * 40.0 + time * 0.5));
+            vec3 color = vec3(0.0, 0.1 + grid * 0.3, 0.2 + grid * 0.5);
+            gl_FragColor = vec4(color, 1.0);
+          }
+        `,
+      })
+      const bgMesh = new THREE.Mesh(bgGeometry, bgMaterial)
+      scene.add(bgMesh)
+
+      // Grid - more visible
+      const gridHelper = new THREE.GridHelper(GRID_SIZE * CELL_SIZE, GRID_SIZE, 0x00ccff, 0x006688)
+      gridHelper.position.y = 0
+      scene.add(gridHelper)
+
+      // Grid floor with glow
+      const floorGeometry = new THREE.PlaneGeometry(GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE)
+      const floorMaterial = new THREE.MeshBasicMaterial({
+        color: 0x001a33,
+        transparent: true,
+        opacity: 0.6,
+      })
+      const floor = new THREE.Mesh(floorGeometry, floorMaterial)
+      floor.rotation.x = -Math.PI / 2
+      floor.position.y = 0
+      scene.add(floor)
+
+      // Walls - brighter and more visible
+      const wallMaterial = new THREE.MeshPhongMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.6,
+        emissive: 0x00ccff,
+        emissiveIntensity: 1.0,
+      })
+
+      const halfSize = (GRID_SIZE * CELL_SIZE) / 2
+      const wallHeight = 8
+
+      function createWall(width, height, depth, x, y, z) {
+        const geometry = new THREE.BoxGeometry(width, height, depth)
+        const mesh = new THREE.Mesh(geometry, wallMaterial)
+        mesh.position.set(x, y, z)
+        scene.add(mesh)
+
+        // Add wall light
+        const wallLight = new THREE.PointLight(0x00ffff, 0.5, 30)
+        wallLight.position.set(x, y, z)
+        scene.add(wallLight)
+
+        return mesh
+      }
+
+      createWall(GRID_SIZE * CELL_SIZE + 2, wallHeight, 2, 0, wallHeight / 2, -halfSize)
+      createWall(GRID_SIZE * CELL_SIZE + 2, wallHeight, 2, 0, wallHeight / 2, halfSize)
+      createWall(2, wallHeight, GRID_SIZE * CELL_SIZE, -halfSize, wallHeight / 2, 0)
+      createWall(2, wallHeight, GRID_SIZE * CELL_SIZE, halfSize, wallHeight / 2, 0)
+
+      // Bike class
+      class Bike {
+        constructor(x, z, color, isPlayer = false) {
+          this.isPlayer = isPlayer
+          this.color = color
+          this.position = new THREE.Vector3(x, 0, z)
+          this.direction = new THREE.Vector3(1, 0, 0)
+          this.speed = INITIAL_SPEED
+          this.alive = true
+          this.turnCooldown = 0
+          this.trail = []
+          this.boosting = false
+
+          // Bike mesh - larger and more visible
+          const bikeGroup = new THREE.Group()
+
+          // Main body
+          const bodyGeometry = new THREE.BoxGeometry(2, 1.5, 4)
+          const bikeMaterial = new THREE.MeshPhongMaterial({
+            color: color,
+            emissive: color,
+            emissiveIntensity: 1.2,
+          })
+          const body = new THREE.Mesh(bodyGeometry, bikeMaterial)
+          body.position.y = 1
+          bikeGroup.add(body)
+
+          // Front wedge
+          const wedgeGeometry = new THREE.ConeGeometry(1, 2, 4)
+          const wedge = new THREE.Mesh(wedgeGeometry, bikeMaterial)
+          wedge.rotation.z = Math.PI / 2
+          wedge.rotation.x = Math.PI / 4
+          wedge.position.set(0, 1, 2.5)
+          bikeGroup.add(wedge)
+
+          this.mesh = bikeGroup
+          this.mesh.position.copy(this.position)
+          scene.add(this.mesh)
+
+          // Brighter light
+          this.light = new THREE.PointLight(color, 3, 30)
+          this.light.position.copy(this.position)
+          this.light.position.y = 2
+          scene.add(this.light)
+
+          // Trail segment
+          this.currentTrailStart = this.position.clone()
+          this.occupiedCells = new Set()
+          this.addOccupiedCell(x, z)
+        }
+
+        addOccupiedCell(x, z) {
+          const cellX = Math.floor(x / CELL_SIZE)
+          const cellZ = Math.floor(z / CELL_SIZE)
+          this.occupiedCells.add(`${cellX},${cellZ}`)
+        }
+
+        turn(newDirection) {
+          if (this.turnCooldown > 0) return
+          if (Math.abs(this.direction.dot(newDirection)) > 0.9) return // Prevent 180 turns
+
+          // Create trail segment - improved visibility
+          const start = this.currentTrailStart.clone()
+          const end = this.position.clone()
+          const distance = start.distanceTo(end)
+
+          if (distance > 0.5) {
+            // Main trail wall
+            const trailGeometry = new THREE.BoxGeometry(1, 4, 1)
+            const trailMaterial = new THREE.MeshPhongMaterial({
+              color: this.color,
+              emissive: this.color,
+              emissiveIntensity: 1.0,
+              transparent: true,
+              opacity: 0.9,
+            })
+            const trail = new THREE.Mesh(trailGeometry, trailMaterial)
+            const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5)
+            trail.position.copy(midpoint)
+            trail.position.y = 2
+
+            const angle = Math.atan2(end.z - start.z, end.x - start.x)
+            trail.rotation.y = angle
+            trail.scale.z = distance
+
+            // Trail glow effect
+            const glowGeometry = new THREE.BoxGeometry(1.5, 5, 1)
+            const glowMaterial = new THREE.MeshBasicMaterial({
+              color: this.color,
+              transparent: true,
+              opacity: 0.3,
+            })
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial)
+            glow.position.copy(midpoint)
+            glow.position.y = 2.5
+            glow.rotation.y = angle
+            glow.scale.z = distance
+
+            scene.add(trail)
+            scene.add(glow)
+            this.trail.push({
+              mesh: trail,
+              glow: glow,
+              start: start.clone(),
+              end: end.clone(),
+            })
+          }
+
+          this.direction.copy(newDirection)
+          this.currentTrailStart = this.position.clone()
+          this.turnCooldown = TURN_COOLDOWN
+        }
+
+        boost(active) {
+          this.boosting = active
+          this.speed = active ? INITIAL_SPEED * BOOST_MULTIPLIER : INITIAL_SPEED
+          this.light.intensity = active ? 6 : 3
+        }
+
+        update() {
+          if (!this.alive) return
+
+          if (this.turnCooldown > 0) this.turnCooldown--
+
+          this.position.add(this.direction.clone().multiplyScalar(this.speed))
+          this.mesh.position.copy(this.position)
+          this.light.position.copy(this.position)
+
+          const angle = Math.atan2(this.direction.z, this.direction.x)
+          this.mesh.rotation.y = angle
+
+          this.addOccupiedCell(this.position.x, this.position.z)
+
+          // Check bounds
+          const halfSize = (GRID_SIZE * CELL_SIZE) / 2
+          if (Math.abs(this.position.x) > halfSize || Math.abs(this.position.z) > halfSize) {
+            this.die()
+          }
+        }
+
+        checkCollision(bikes) {
+          if (!this.alive) return
+
+          const cellX = Math.floor(this.position.x / CELL_SIZE)
+          const cellZ = Math.floor(this.position.z / CELL_SIZE)
+          const cellKey = `${cellX},${cellZ}`
+
+          for (let bike of bikes) {
+            if (bike === this) continue
+            if (bike.occupiedCells.has(cellKey)) {
+              this.die()
+              return
+            }
+          }
+        }
+
+        die() {
+          this.alive = false
+          this.light.intensity = 0.5
+
+          // Fade trail
+          for (let segment of this.trail) {
+            segment.mesh.material.opacity = 0.3
+            if (segment.glow) segment.glow.material.opacity = 0.1
+          }
+        }
+
+        cleanup() {
+          scene.remove(this.mesh)
+          scene.remove(this.light)
+          for (let segment of this.trail) {
+            scene.remove(segment.mesh)
+            if (segment.glow) scene.remove(segment.glow)
+          }
+        }
+      }
+
+      // AI logic
+      class AI {
+        constructor(bike) {
+          this.bike = bike
+          this.thinkTimer = 0
+          this.thinkInterval = 30 + Math.random() * 20
+        }
+
+        update(bikes) {
+          if (!this.bike.alive) return
+
+          this.thinkTimer++
+          if (this.thinkTimer < this.thinkInterval) return
+          this.thinkTimer = 0
+
+          const directions = [
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 0, -1),
+          ]
+
+          // Filter valid directions
+          const validDirections = directions.filter((dir) => {
+            if (Math.abs(this.bike.direction.dot(dir)) > 0.9) return false
+
+            const testPos = this.bike.position.clone().add(dir.clone().multiplyScalar(10))
+            const halfSize = (GRID_SIZE * CELL_SIZE) / 2
+
+            if (Math.abs(testPos.x) > halfSize || Math.abs(testPos.z) > halfSize) {
+              return false
+            }
+
+            return true
+          })
+
+          if (validDirections.length > 0) {
+            // Prefer continuing straight sometimes
+            if (Math.random() < 0.3) {
+              return
+            }
+
+            const newDir = validDirections[Math.floor(Math.random() * validDirections.length)]
+            this.bike.turn(newDir)
+          }
+        }
+      }
+
+      // Game state
+      let gameState = {
+        bikes: [],
+        ais: [],
+        player: null,
+        gameOver: false,
+      }
+
+      const keys = {
+        up: false,
+        down: false,
+        left: false,
+        right: false,
+        space: false,
+      }
+
+      // Input
+      document.addEventListener("keydown", (e) => {
+        if (e.code === "ArrowUp" || e.code === "KeyW") keys.up = true
+        if (e.code === "ArrowDown" || e.code === "KeyS") keys.down = true
+        if (e.code === "ArrowLeft" || e.code === "KeyA") keys.left = true
+        if (e.code === "ArrowRight" || e.code === "KeyD") keys.right = true
+        if (e.code === "Space") {
+          keys.space = true
+          e.preventDefault()
+        }
+        if (e.code === "KeyR") initGame()
+      })
+
+      document.addEventListener("keyup", (e) => {
+        if (e.code === "ArrowUp" || e.code === "KeyW") keys.up = false
+        if (e.code === "ArrowDown" || e.code === "KeyS") keys.down = false
+        if (e.code === "ArrowLeft" || e.code === "KeyA") keys.left = false
+        if (e.code === "ArrowRight" || e.code === "KeyD") keys.right = false
+        if (e.code === "Space") keys.space = false
+      })
+
+      // Initialize game
+      function initGame() {
+        // Cleanup
+        for (let bike of gameState.bikes) {
+          bike.cleanup()
+        }
+
+        gameState = {
+          bikes: [],
+          ais: [],
+          player: null,
+          gameOver: false,
+        }
+
+        document.getElementById("status").style.display = "none"
+
+        // Player (cyan)
+        const player = new Bike(-30, -30, 0x00ffff, true)
+        player.direction = new THREE.Vector3(0, 0, 1)
+        gameState.player = player
+        gameState.bikes.push(player)
+
+        // NPCs
+        const npc1 = new Bike(30, 30, 0xff0000)
+        npc1.direction = new THREE.Vector3(0, 0, -1)
+        gameState.bikes.push(npc1)
+        gameState.ais.push(new AI(npc1))
+
+        const npc2 = new Bike(-30, 30, 0x00ff00)
+        npc2.direction = new THREE.Vector3(1, 0, 0)
+        gameState.bikes.push(npc2)
+        gameState.ais.push(new AI(npc2))
+
+        const npc3 = new Bike(30, -30, 0xffff00)
+        npc3.direction = new THREE.Vector3(-1, 0, 0)
+        gameState.bikes.push(npc3)
+        gameState.ais.push(new AI(npc3))
+      }
+
+      // Game loop
+      function animate() {
+        requestAnimationFrame(animate)
+
+        if (!gameState.gameOver) {
+          // Player input
+          if (gameState.player && gameState.player.alive) {
+            if (keys.up) gameState.player.turn(new THREE.Vector3(0, 0, -1))
+            if (keys.down) gameState.player.turn(new THREE.Vector3(0, 0, 1))
+            if (keys.left) gameState.player.turn(new THREE.Vector3(-1, 0, 0))
+            if (keys.right) gameState.player.turn(new THREE.Vector3(1, 0, 0))
+            gameState.player.boost(keys.space)
+          }
+
+          // Update AI
+          for (let ai of gameState.ais) {
+            ai.update(gameState.bikes)
+          }
+
+          // Update bikes
+          for (let bike of gameState.bikes) {
+            bike.update()
+            bike.checkCollision(gameState.bikes)
+          }
+
+          // Camera follow player - closer and more dynamic
+          if (gameState.player && gameState.player.alive) {
+            const targetX = gameState.player.position.x
+            const targetZ = gameState.player.position.z + 20
+            const targetY = 15
+
+            camera.position.x += (targetX - camera.position.x) * 0.1
+            camera.position.z += (targetZ - camera.position.z) * 0.1
+            camera.position.y += (targetY - camera.position.y) * 0.1
+            camera.lookAt(gameState.player.position.x, 0, gameState.player.position.z - 5)
+          }
+
+          // Check game over
+          const aliveBikes = gameState.bikes.filter((b) => b.alive)
+          const aliveCount = aliveBikes.length
+          document.getElementById("alive").textContent = aliveCount
+          document.getElementById("speed").textContent = (gameState.player?.boosting ? BOOST_MULTIPLIER : 1.0).toFixed(
+            1,
+          )
+
+          if (aliveCount <= 1) {
+            gameState.gameOver = true
+            const status = document.getElementById("status")
+            if (gameState.player?.alive) {
+              status.textContent = "YOU WIN!"
+              status.style.color = "#0ff"
+              status.style.textShadow = "0 0 20px #0ff"
+            } else {
+              status.textContent = "GAME OVER"
+              status.style.color = "#f00"
+              status.style.textShadow = "0 0 20px #f00"
+            }
+            status.style.display = "block"
+          }
+        }
+
+        // Update background animation
+        bgMaterial.uniforms.time.value += 0.01
+
+        renderer.render(scene, camera)
+      }
+
+      // Resize handler
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight
+        camera.updateProjectionMatrix()
+        renderer.setSize(window.innerWidth, window.innerHeight)
+      })
+
+      // Start
+      initGame()
+      animate()
+    </script>
+  </body>
+</html>

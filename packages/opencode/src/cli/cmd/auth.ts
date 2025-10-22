@@ -238,26 +238,10 @@ export const AuthLoginCommand = cmd({
 
           if (authMethod === "google" || authMethod === "discord") {
             try {
-              prompts.log.info("Opening browser for authentication...")
+              // Device code flow - automatically handles everything
+              const result = await AuthPlayscapeSupabase.loginWithDeviceCode()
 
-              await AuthPlayscapeSupabase.loginWithOAuth(authMethod)
-
-              prompts.log.info("After authenticating, you'll see an access token on the page.")
-
-              const accessToken = await prompts.text({
-                message: "Paste the access token here:",
-                validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-              })
-              if (prompts.isCancel(accessToken)) throw new UI.CancelledError()
-
-              const refreshToken = await prompts.text({
-                message: "Paste the refresh token here:",
-                validate: (x) => (x && x.length > 0 ? undefined : "Required"),
-              })
-              if (prompts.isCancel(refreshToken)) throw new UI.CancelledError()
-
-              const result = await AuthPlayscapeSupabase.completeOAuthWithToken(accessToken, refreshToken)
-              prompts.log.success(`Logged in as ${result.user.email}`)
+              prompts.log.success(`✓ Authenticated successfully!`)
               prompts.outro("Done")
               return
             } catch (error: any) {

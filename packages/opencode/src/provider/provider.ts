@@ -25,6 +25,19 @@ export namespace Provider {
   type Source = "env" | "config" | "custom" | "api"
 
   const CUSTOM_LOADERS: Record<string, CustomLoader> = {
+    async "playscape-proxy"() {
+      // PLAYSCAPE: Always use proxy for ALL users - no local API keys needed
+      const hasPlayscapeAuth = await Auth.get("playscape-supabase")
+
+      return {
+        autoload: !!hasPlayscapeAuth, // Always load if authenticated
+        async getModel(_sdk: any, modelID: string) {
+          const { createProxyModel } = await import("./proxy")
+          return createProxyModel(modelID)
+        },
+        options: {},
+      }
+    },
     async anthropic() {
       return {
         autoload: false,
@@ -91,48 +104,53 @@ export namespace Provider {
           credentialProvider: fromNodeProviderChain(),
         },
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-          let regionPrefix = region.split("-")[0]
+          // Skip prefixing if model already has an inference profile prefix
+          const hasInferenceProfile = /^(global|us|eu|au|apac)\./i.test(modelID)
 
-          switch (regionPrefix) {
-            case "us": {
-              const modelRequiresPrefix = ["claude", "deepseek"].some((m) => modelID.includes(m))
-              const isGovCloud = region.startsWith("us-gov")
-              if (modelRequiresPrefix && !isGovCloud) {
-                modelID = `${regionPrefix}.${modelID}`
-              }
-              break
-            }
-            case "eu": {
-              const regionRequiresPrefix = [
-                "eu-west-1",
-                "eu-west-3",
-                "eu-north-1",
-                "eu-central-1",
-                "eu-south-1",
-                "eu-south-2",
-              ].some((r) => region.includes(r))
-              const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "llama3", "pixtral"].some((m) =>
-                modelID.includes(m),
-              )
-              if (regionRequiresPrefix && modelRequiresPrefix) {
-                modelID = `${regionPrefix}.${modelID}`
-              }
-              break
-            }
-            case "ap": {
-              const isAustraliaRegion = ["ap-southeast-2", "ap-southeast-4"].includes(region)
-              if (isAustraliaRegion && modelID.startsWith("anthropic.claude-sonnet-4-5")) {
-                modelID = `au.${modelID}`
-              } else {
-                const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "nova-pro"].some((m) =>
-                  modelID.includes(m),
-                )
-                if (modelRequiresPrefix) {
-                  regionPrefix = "apac"
+          if (!hasInferenceProfile) {
+            let regionPrefix = region.split("-")[0]
+
+            switch (regionPrefix) {
+              case "us": {
+                const modelRequiresPrefix = ["claude", "deepseek"].some((m) => modelID.includes(m))
+                const isGovCloud = region.startsWith("us-gov")
+                if (modelRequiresPrefix && !isGovCloud) {
                   modelID = `${regionPrefix}.${modelID}`
                 }
+                break
               }
-              break
+              case "eu": {
+                const regionRequiresPrefix = [
+                  "eu-west-1",
+                  "eu-west-3",
+                  "eu-north-1",
+                  "eu-central-1",
+                  "eu-south-1",
+                  "eu-south-2",
+                ].some((r) => region.includes(r))
+                const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "llama3", "pixtral"].some((m) =>
+                  modelID.includes(m),
+                )
+                if (regionRequiresPrefix && modelRequiresPrefix) {
+                  modelID = `${regionPrefix}.${modelID}`
+                }
+                break
+              }
+              case "ap": {
+                const isAustraliaRegion = ["ap-southeast-2", "ap-southeast-4"].includes(region)
+                if (isAustraliaRegion && modelID.startsWith("anthropic.claude-sonnet-4-5")) {
+                  modelID = `au.${modelID}`
+                } else {
+                  const modelRequiresPrefix = ["claude", "nova-lite", "nova-micro", "nova-pro"].some((m) =>
+                    modelID.includes(m),
+                  )
+                  if (modelRequiresPrefix) {
+                    regionPrefix = "apac"
+                    modelID = `${regionPrefix}.${modelID}`
+                  }
+                }
+                break
+              }
             }
           }
 
@@ -305,7 +323,10 @@ export namespace Provider {
       database[providerID] = parsed
     }
 
-    const disabled = await Config.get().then((cfg) => new Set(cfg.disabled_providers ?? []))
+    // PLAYSCAPE: Use provider configuration from config file
+    const disabled = await Config.get().then((cfg) => {
+      return new Set(cfg.disabled_providers ?? [])
+    })
     // load env
     for (const [providerID, provider] of Object.entries(database)) {
       if (disabled.has(providerID)) continue
@@ -465,13 +486,27 @@ export namespace Provider {
       }
       throw new ModelNotFoundError({ providerID, modelID })
     }
-    const info = provider.info.models[modelID]
-    if (!info) throw new ModelNotFoundError({ providerID, modelID })
+
+    // For Bedrock: strip inference profile prefix when looking up model in database
+    // but preserve the full modelID for actual API calls
+    let lookupModelID = modelID
+    if (providerID === "amazon-bedrock") {
+      lookupModelID = modelID.replace(/^(global|us|eu|au|apac)\./, "")
+    }
+
+    const info = provider.info.models[lookupModelID]
+    if (!info) throw new ModelNotFoundError({ providerID, modelID: lookupModelID })
     const sdk = await getSDK(provider.info, info)
 
     try {
       const keyReal = `${providerID}/${modelID}`
-      const realID = s.realIdByKey.get(keyReal) ?? info.id
+      let realID = s.realIdByKey.get(keyReal) ?? info.id
+
+      // For Bedrock: use the full modelID (with inference profile prefix) instead of info.id
+      if (providerID === "amazon-bedrock" && modelID !== lookupModelID) {
+        realID = modelID
+      }
+
       const language = provider.getModel
         ? await provider.getModel(sdk, realID, provider.options)
         : sdk.languageModel(realID)
@@ -535,20 +570,20 @@ export namespace Provider {
     const cfg = await Config.get()
     if (cfg.model) return parseModel(cfg.model)
 
-    // Force AWS Bedrock as the default provider
+    // PLAYSCAPE: Always use playscape-proxy as the default provider
     const providers = await list()
-    const bedrock = providers["amazon-bedrock"]
-    if (bedrock) {
-      const [model] = sort(Object.values(bedrock.info.models))
+    const playscape = providers["playscape-proxy"]
+    if (playscape) {
+      const [model] = sort(Object.values(playscape.info.models))
       if (model) {
         return {
-          providerID: "amazon-bedrock",
+          providerID: "playscape-proxy",
           modelID: model.id,
         }
       }
     }
 
-    // Fallback to original logic if Bedrock not available
+    // Fallback (should never reach here in Playscape)
     const lastused = await Bun.file(path.join(Global.Path.state, "tui"))
       .text()
       .then((text) => {

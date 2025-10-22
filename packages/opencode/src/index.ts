@@ -20,6 +20,7 @@ import { McpCommand } from "./cli/cmd/mcp"
 import { GithubCommand } from "./cli/cmd/github"
 import { ExportCommand } from "./cli/cmd/export"
 import { AttachCommand } from "./cli/cmd/attach"
+import { PlayscapeCommand } from "./cli/cmd/playscape"
 
 const cancel = new AbortController()
 
@@ -98,6 +99,7 @@ const cli = yargs(hideBin(process.argv))
   .command(StatsCommand)
   .command(ExportCommand)
   .command(GithubCommand)
+  .command(PlayscapeCommand)
   .fail((msg) => {
     if (
       msg.startsWith("Unknown argument") ||
